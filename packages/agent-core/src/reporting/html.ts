@@ -1,4 +1,5 @@
 import type { RunSummary } from '@qa-agent/shared-contracts';
+import { SOURCE_LABEL, testedFlows } from './scope';
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: '#b3261e',
@@ -43,15 +44,25 @@ export function toHtml(summary: RunSummary): string {
     )
     .join('');
 
-  const missions = summary.missions
+  const tested = testedFlows(summary)
     .map(
-      (mission) => `
+      ({ mission, steps, routes }) => `
       <tr>
         <td>${escapeHtml(mission.name)}</td>
-        <td>${mission.source}</td>
+        <td>${SOURCE_LABEL[mission.source]}</td>
         <td>${mission.status}</td>
+        <td>${steps}</td>
+        <td>${routes.map((route) => `<code>${escapeHtml(route)}</code>`).join(' ') || '—'}</td>
         <td>${escapeHtml(mission.rationale)}</td>
       </tr>`,
+    )
+    .join('');
+
+  const notTested = summary.missions
+    .filter((mission) => mission.status === 'skipped')
+    .map(
+      (mission) =>
+        `<li>${escapeHtml(mission.name)} — skipped (${escapeHtml(summary.stoppedBecause)})</li>`,
     )
     .join('');
 
@@ -102,9 +113,14 @@ export function toHtml(summary: RunSummary): string {
     <div class="stat"><b>${(summary.durationMs / 1000).toFixed(1)}s</b><span>Duration</span></div>
   </div>
 
-  <h2>Missions</h2>
-  <table><thead><tr><th>Mission</th><th>Source</th><th>Status</th><th>Why it ran</th></tr></thead>
-  <tbody>${missions}</tbody></table>
+  <h2>Scope tested</h2>
+  ${
+    tested
+      ? `<table><thead><tr><th>Flow</th><th>Type</th><th>Result</th><th>Steps</th><th>Routes</th><th>Why it ran</th></tr></thead>
+  <tbody>${tested}</tbody></table>`
+      : '<p>No flows were tested.</p>'
+  }
+  ${notTested ? `<h2>Not tested</h2>\n  <ul>${notTested}</ul>` : ''}
 
   <h2>Defects</h2>
   ${defects || '<p>No defects found.</p>'}

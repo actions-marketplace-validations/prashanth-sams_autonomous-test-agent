@@ -1,4 +1,5 @@
 import type { Defect, RunSummary } from '@qa-agent/shared-contracts';
+import { SOURCE_LABEL, testedFlows } from './scope';
 
 const STATUS_LABEL: Record<Defect['status'], string> = {
   reproduced: 'reproduced',
@@ -97,6 +98,24 @@ export function toMarkdown(summary: RunSummary): string {
     }
   }
 
+  // Name every flow that ran, so "4 completed" is never the only record of scope.
+  const tested = testedFlows(summary);
+  lines.push('### Scope tested');
+  lines.push('');
+  if (tested.length === 0) {
+    lines.push('No flows were tested.');
+  } else {
+    lines.push('| Flow | Type | Result | Steps | Routes |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    for (const flow of tested) {
+      lines.push(
+        `| ${flow.mission.name} | ${SOURCE_LABEL[flow.mission.source]} | ${flow.mission.status} | ` +
+          `${flow.steps} | ${routeList(flow.routes)} |`,
+      );
+    }
+  }
+  lines.push('');
+
   const skipped = summary.missions.filter((mission) => mission.status === 'skipped');
   if (skipped.length > 0) {
     lines.push('### Not tested');
@@ -117,6 +136,13 @@ export function toMarkdown(summary: RunSummary): string {
     );
   }
   return lines.join('\n');
+}
+
+/** Free exploration can reach many routes; run.json and report.html list them all. */
+function routeList(routes: string[], limit = 5): string {
+  if (routes.length === 0) return '—';
+  const shown = routes.slice(0, limit).map((route) => `\`${route}\``).join(', ');
+  return routes.length > limit ? `${shown}, +${routes.length - limit} more` : shown;
 }
 
 function recommendationText(summary: RunSummary): string {

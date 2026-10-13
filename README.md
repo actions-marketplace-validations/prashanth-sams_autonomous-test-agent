@@ -91,8 +91,9 @@ rules:
   "reproduce" themselves trivially.
 - Every action is recorded, and every defect ships with steps, screenshots, DOM,
   console log, a Playwright trace and a **runnable `.spec.ts` reproduction**.
-- The report states which journeys were selected **and why**, and which areas
-  were **not tested**.
+- The report states which journeys were selected **and why**, lists every flow
+  it **tested** with the routes that flow reached, and names the ones that were
+  **not tested**.
 - Low impact confidence **broadens** the scope; it never silently narrows it.
 - Critical journeys always run, whatever impact analysis suggests.
 - Destructive actions are blocked by default; `advisory` mode is the default and
@@ -142,6 +143,16 @@ when confidence is low. The PR comment explains the selection:
 | Area                | Confidence | Journeys                              |
 | Checkout / Payments | 90%        | checkout, payment retry, declined card |
 | Authentication      | 85%        | login, session expiry, logout          |
+```
+
+It then lists the scope it actually tested. Flows the budget did not reach
+appear under **Not tested**:
+
+```
+| Flow                          | Type             | Result    | Steps | Routes                     |
+| Checkout                      | critical journey | completed | 21    | /checkout                  |
+| Browse products               | critical journey | completed | 15    | /products, /cart, /        |
+| Checkout / Payments: checkout | impact analysis  | completed | 14    | /, /checkout, /cart, …     |
 ```
 
 Exit codes: `0` pass, `1` review, `2` block, `3` agent error.
@@ -253,8 +264,9 @@ qa-web-agent pr      --base <ref> --head <ref> [--config agent.yaml] [options]
 npm test
 ```
 
-17 unit tests cover impact analysis, defect deduplication and confidence, the
-merge recommendation, safety policy, risk scoring, and the oracles.
+20 unit tests cover impact analysis, defect deduplication and confidence, the
+merge recommendation, safety policy, risk scoring, the oracles, and the
+tested-scope report.
 
 ## Not built yet
 

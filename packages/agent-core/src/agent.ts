@@ -207,7 +207,7 @@ export class ExplorationAgent {
       this.steps += 1;
       const state = await this.executor.observe();
       this.memory.observe(state);
-      this.coverage.visitState(state);
+      this.coverage.visitState(state, mission.id);
       this.coverage.recordAction(state, result.action, mission.id);
       this.memory.record(result);
       await this.judge(state, result, mission);
@@ -243,7 +243,7 @@ export class ExplorationAgent {
 
       const state = await this.executor.observe();
       this.memory.observe(state);
-      this.coverage.visitState(state);
+      this.coverage.visitState(state, mission.id);
       await this.judge(state, undefined, mission);
 
       const candidates = (await this.executor.availableActions(state)).filter((action) => {
@@ -289,7 +289,7 @@ export class ExplorationAgent {
 
       const nextState = await this.executor.observe();
       this.memory.observe(nextState);
-      this.coverage.visitState(nextState);
+      this.coverage.visitState(nextState, mission.id);
       await this.judge(nextState, result, mission, state);
     }
   }

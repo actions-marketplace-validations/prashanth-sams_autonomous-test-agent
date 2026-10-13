@@ -20,6 +20,7 @@ import { InvariantOracle } from './oracles/invariants';
 import { ConsoleErrorOracle } from './oracles/runtime';
 import type { OracleContext } from './oracles/types';
 import { RiskEngine } from './planning/risk';
+import { toHtml, toMarkdown } from './reporting/writer';
 import { SafetyPolicy } from './safety/policy';
 import { maskRoute } from './util/route';
 
@@ -275,6 +276,118 @@ test('a failed login still produces an error summary instead of throwing', async
     assert.match(summary.stoppedBecause, /^authentication failed: .*selector not found/);
     assert.ok(summary.missions.every((mission) => mission.status === 'skipped'));
     assert.deepEqual(calls, ['start', 'evidence:setup-failure', 'stop']);
+    assert.match(toMarkdown(summary), /### Scope tested\n\nNo flows were tested\./);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('the report names each flow that ran and the routes it reached', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  let route = '/';
+  const here = () =>
+    state({
+      id: `state${route}`,
+      route,
+      location: `https://shop.example.com${route}`,
+      text: `Demo shop content for ${route}`,
+    });
+  const executor: PlatformExecutor = {
+    platform: 'web',
+    name: 'stub',
+    start: async () => undefined,
+    observe: async () => here(),
+    availableActions: async () => [],
+    execute: async () => {
+      throw new Error('only scripted steps run in this fixture');
+    },
+    runScriptedStep: async (step) => {
+      const stateBefore = here().id;
+      if (step.kind === 'goto') route = step.value ?? '/';
+      return {
+        action: { id: `goto${route}`, kind: 'navigate', description: `Open ${route}` },
+        ok: true,
+        durationMs: 0,
+        stateBefore,
+        stateAfter: here().id,
+        noOp: false,
+        observations: [],
+      };
+    },
+    captureEvidence: async () => [],
+    drainObservations: () => [],
+    reset: async () => {
+      route = '/';
+    },
+    stop: async () => undefined,
+  };
+
+  try {
+    const agent = new ExplorationAgent({
+      executor,
+      config: config({
+        criticalJourneys: [
+          {
+            id: 'checkout',
+            name: 'Checkout',
+            script: [
+              { kind: 'goto', value: '/checkout' },
+              { kind: 'goto', value: '/confirmation' },
+            ],
+          },
+          {
+            id: 'browse',
+            name: 'Browse products',
+            script: [
+              { kind: 'goto', value: '/products' },
+              { kind: 'goto', value: '/cart' },
+            ],
+          },
+        ],
+        // The two scripts spend the whole budget, so the impact mission is skipped.
+        limits: { ...config().limits, maxSteps: 4 },
+        reporting: { outputDir, video: false, trace: false, har: false },
+      }),
+      missions: [
+        {
+          id: 'retry',
+          name: 'Payments: payment retry',
+          goal: '',
+          rationale: '1 changed file(s) in Payments',
+          source: 'impact-analysis',
+          priority: 50,
+          hints: [],
+          maxSteps: 6,
+          status: 'pending',
+        },
+      ],
+    });
+    const summary = await agent.run();
+
+    // Checkout's leftover budget explored from the start page, so it reached "/" too.
+    assert.deepEqual(
+      summary.coverage.missions.map(({ id, routes }) => [id, routes]),
+      [
+        ['checkout', ['/checkout', '/confirmation', '/']],
+        ['browse', ['/products', '/cart']],
+        ['retry', []],
+      ],
+    );
+
+    const markdown = toMarkdown(summary);
+    const scope = markdown.slice(markdown.indexOf('### Scope tested'), markdown.indexOf('### Not tested'));
+    assert.match(scope, /\| Checkout \| critical journey \| completed \| 2 \| `\/checkout`, `\/confirmation`, `\/` \|/);
+    assert.match(scope, /\| Browse products \| critical journey \| completed \| 2 \| `\/products`, `\/cart` \|/);
+    // A skipped mission is reported as not tested, never as scope.
+    assert.doesNotMatch(scope, /payment retry/);
+    assert.match(markdown, /### Not tested\n\n- Payments: payment retry — skipped \(step budget exhausted\)/);
+
+    const html = toHtml(summary);
+    assert.match(
+      html,
+      /<td>Browse products<\/td>\s*<td>critical journey<\/td>\s*<td>completed<\/td>\s*<td>2<\/td>\s*<td><code>\/products<\/code> <code>\/cart<\/code><\/td>/,
+    );
+    assert.match(html, /<h2>Not tested<\/h2>\s*<ul><li>Payments: payment retry — skipped \(step budget exhausted\)<\/li><\/ul>/);
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }
