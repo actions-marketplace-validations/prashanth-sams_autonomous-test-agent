@@ -1,5 +1,5 @@
 import type { RunSummary } from '@qa-agent/shared-contracts';
-import { SOURCE_LABEL, testedFlows } from './scope';
+import { SOURCE_LABEL, testedFlows, untestedFlows } from './scope';
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: '#b3261e',
@@ -58,12 +58,8 @@ export function toHtml(summary: RunSummary): string {
     )
     .join('');
 
-  const notTested = summary.missions
-    .filter((mission) => mission.status === 'skipped')
-    .map(
-      (mission) =>
-        `<li>${escapeHtml(mission.name)} — skipped (${escapeHtml(summary.stoppedBecause)})</li>`,
-    )
+  const notTested = untestedFlows(summary)
+    .map(({ mission, reason }) => `<li>${escapeHtml(mission.name)} — ${escapeHtml(reason)}</li>`)
     .join('');
 
   return `<!doctype html>

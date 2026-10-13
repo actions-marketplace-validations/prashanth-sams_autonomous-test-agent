@@ -16,8 +16,8 @@ export interface TestedFlow {
 }
 
 /**
- * The flows the agent actually ran, with what each one covered. A skipped
- * mission is not scope: the reports list it under "Not tested" instead.
+ * The flows the agent actually ran, with what each one covered. A skipped or
+ * errored mission is not scope: the reports list it under "Not tested" instead.
  */
 export function testedFlows(summary: RunSummary): TestedFlow[] {
   const covered = new Map(summary.coverage.missions.map((entry) => [entry.id, entry]));
@@ -27,5 +27,18 @@ export function testedFlows(summary: RunSummary): TestedFlow[] {
       mission,
       steps: covered.get(mission.id)?.steps ?? 0,
       routes: covered.get(mission.id)?.routes ?? [],
+    }));
+}
+
+/** Selected missions that tested nothing, each with the reason. */
+export function untestedFlows(summary: RunSummary): { mission: Mission; reason: string }[] {
+  return summary.missions
+    .filter((mission) => mission.status === 'skipped' || mission.status === 'errored')
+    .map((mission) => ({
+      mission,
+      reason:
+        mission.status === 'errored'
+          ? `errored (${mission.error ?? 'no reason recorded'})`
+          : `skipped (${summary.stoppedBecause})`,
     }));
 }

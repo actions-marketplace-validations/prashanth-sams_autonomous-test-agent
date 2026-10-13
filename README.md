@@ -86,7 +86,9 @@ rules:
 ### Trust rules built into the flow
 
 - Every candidate defect is **replayed from a clean state**; only reproduced,
-  high-severity findings can recommend blocking a merge.
+  high-severity findings can recommend blocking a merge. A broken critical
+  journey is replayed by **re-running its script**, so it is checked again
+  exactly as it was configured.
 - Verification replays use a **fresh request log**, so cumulative rules cannot
   "reproduce" themselves trivially.
 - Every action is recorded, and every defect ships with steps, screenshots, DOM,
@@ -159,7 +161,10 @@ Exit codes: `0` pass, `1` review, `2` block, `3` agent error.
 
 `3` also covers a run where every mission failed to execute. "The agent could
 not test this" is never reported as a pass — an empty defect list only means
-something when at least one mission actually ran.
+something when at least one mission actually ran. A mission is **errored** when
+the agent itself broke while running it, and **failed** when it ran and its
+journey broke. A failed journey is a test result: its defect decides the
+verdict, never exit code `3`.
 `.github/workflows/qa-agent.yml` wires this into GitHub Actions, uploads the
 evidence directory and keeps a single updated PR comment.
 
@@ -264,9 +269,9 @@ qa-web-agent pr      --base <ref> --head <ref> [--config agent.yaml] [options]
 npm test
 ```
 
-20 unit tests cover impact analysis, defect deduplication and confidence, the
-merge recommendation, safety policy, risk scoring, the oracles, and the
-tested-scope report.
+22 unit tests cover impact analysis, defect deduplication and confidence, the
+merge recommendation, safety policy, risk scoring, the oracles, verification of
+broken critical journeys, and the tested-scope report.
 
 ## Not built yet
 

@@ -1,5 +1,5 @@
 import type { Defect, RunSummary } from '@qa-agent/shared-contracts';
-import { SOURCE_LABEL, testedFlows } from './scope';
+import { SOURCE_LABEL, testedFlows, untestedFlows } from './scope';
 
 const STATUS_LABEL: Record<Defect['status'], string> = {
   reproduced: 'reproduced',
@@ -27,6 +27,7 @@ export function toMarkdown(summary: RunSummary): string {
     `**Missions:** ${summary.missions.length} selected · ` +
       `${summary.missions.filter((mission) => mission.status === 'completed').length} completed · ` +
       `${summary.missions.filter((mission) => mission.status === 'failed').length} failed · ` +
+      `${summary.missions.filter((mission) => mission.status === 'errored').length} errored · ` +
       `${summary.missions.filter((mission) => mission.status === 'skipped').length} skipped`,
   );
   lines.push(
@@ -116,12 +117,12 @@ export function toMarkdown(summary: RunSummary): string {
   }
   lines.push('');
 
-  const skipped = summary.missions.filter((mission) => mission.status === 'skipped');
-  if (skipped.length > 0) {
+  const untested = untestedFlows(summary);
+  if (untested.length > 0) {
     lines.push('### Not tested');
     lines.push('');
-    for (const mission of skipped) {
-      lines.push(`- ${mission.name} — skipped (${summary.stoppedBecause})`);
+    for (const { mission, reason } of untested) {
+      lines.push(`- ${mission.name} — ${reason}`);
     }
     lines.push('');
   }
