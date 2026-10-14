@@ -454,6 +454,11 @@ test('a broken critical journey is verified by re-running its script', async () 
     assert.equal(broken.defects[0]?.status, 'reproduced');
     assert.equal(broken.recommendation, 'block');
     assert.match(toMarkdown(broken), /\| Checkout \| critical journey \| failed \| 2 \| `\/checkout` \|/);
+    // Numbered 1, 2, 3 on GitHub, which would otherwise show a nested list as i, ii, iii.
+    assert.match(
+      toMarkdown(broken),
+      /- \*\*Reproduction:\*\*\n  <ol type="1">\n  <li>Open \/checkout<\/li>\n  <li>Expect to see "Order confirmed"<\/li>\n  <\/ol>\n/,
+    );
 
     // Broken once: the replays re-ran the script and it passed, so it is flaky.
     const flaky = await run(1);

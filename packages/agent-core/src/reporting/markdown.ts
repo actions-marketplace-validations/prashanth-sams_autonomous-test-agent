@@ -85,10 +85,13 @@ export function toMarkdown(summary: RunSummary): string {
       lines.push(`- **Where:** \`${defect.route}\` — ${defect.url}`);
       lines.push(`- **Seen:** ${defect.occurrences}x`);
       if (defect.steps.length > 0) {
+        // GitHub styles a list nested in a bullet as i, ii, iii; type="1" keeps 1, 2, 3.
         lines.push('- **Reproduction:**');
+        lines.push('  <ol type="1">');
         for (const step of defect.steps) {
-          lines.push(`  ${step.index + 1}. ${step.action.description}`);
+          lines.push(`  <li>${htmlText(step.action.description)}</li>`);
         }
+        lines.push('  </ol>');
       }
       if (defect.evidence.length > 0) {
         lines.push(
@@ -144,6 +147,11 @@ function routeList(routes: string[], limit = 5): string {
   if (routes.length === 0) return '—';
   const shown = routes.slice(0, limit).map((route) => `\`${route}\``).join(', ');
   return routes.length > limit ? `${shown}, +${routes.length - limit} more` : shown;
+}
+
+/** Text inside a raw HTML block: escaped, and on one line, since a line break could end the block early. */
+function htmlText(value: string): string {
+  return value.replace(/\s+/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function recommendationText(summary: RunSummary): string {
