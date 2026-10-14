@@ -86,13 +86,16 @@ rules:
 ### Trust rules built into the flow
 
 - Every candidate defect is **replayed from a clean state**; only reproduced,
-  high-severity findings can recommend blocking a merge.
+  high-severity findings can recommend blocking a merge. A broken critical
+  journey is replayed by **re-running its script**, so it is checked again
+  exactly as it was configured.
 - Verification replays use a **fresh request log**, so cumulative rules cannot
   "reproduce" themselves trivially.
 - Every action is recorded, and every defect ships with steps, screenshots, DOM,
   console log, a Playwright trace and a **runnable `.spec.ts` reproduction**.
-- The report states which journeys were selected **and why**, and which areas
-  were **not tested**.
+- The report states which journeys were selected **and why**, lists every flow
+  it **tested** with the routes that flow reached, and names the ones that were
+  **not tested**.
 - Low impact confidence **broadens** the scope; it never silently narrows it.
 - Critical journeys always run, whatever impact analysis suggests.
 - Destructive actions are blocked by default; `advisory` mode is the default and
@@ -144,11 +147,24 @@ when confidence is low. The PR comment explains the selection:
 | Authentication      | 85%        | login, session expiry, logout          |
 ```
 
+It then lists the scope it actually tested. Flows the budget did not reach
+appear under **Not tested**:
+
+```
+| Flow                          | Type             | Result    | Steps | Routes                     |
+| Checkout                      | critical journey | completed | 21    | /checkout                  |
+| Browse products               | critical journey | completed | 15    | /products, /cart, /        |
+| Checkout / Payments: checkout | impact analysis  | completed | 14    | /, /checkout, /cart, …     |
+```
+
 Exit codes: `0` pass, `1` review, `2` block, `3` agent error.
 
 `3` also covers a run where every mission failed to execute. "The agent could
 not test this" is never reported as a pass — an empty defect list only means
-something when at least one mission actually ran.
+something when at least one mission actually ran. A mission is **errored** when
+the agent itself broke while running it, and **failed** when it ran and its
+journey broke. A failed journey is a test result: its defect decides the
+verdict, never exit code `3`.
 `.github/workflows/qa-agent.yml` wires this into GitHub Actions, uploads the
 evidence directory and keeps a single updated PR comment.
 
@@ -253,8 +269,9 @@ qa-web-agent pr      --base <ref> --head <ref> [--config agent.yaml] [options]
 npm test
 ```
 
-17 unit tests cover impact analysis, defect deduplication and confidence, the
-merge recommendation, safety policy, risk scoring, and the oracles.
+22 unit tests cover impact analysis, defect deduplication and confidence, the
+merge recommendation, safety policy, risk scoring, the oracles, verification of
+broken critical journeys, and the tested-scope report.
 
 ## Not built yet
 

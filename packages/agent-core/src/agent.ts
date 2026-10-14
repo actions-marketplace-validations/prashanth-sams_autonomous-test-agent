@@ -26,6 +26,9 @@ import { RiskEngine } from './planning/risk';
 import { SafetyPolicy } from './safety/policy';
 import { shortHash } from './util/hash';
 
+/** Oracle name on findings raised when a critical journey's script breaks. */
+const JOURNEY_ORACLE = 'critical-journey';
+
 export interface AgentEvents {
   onStep?: (info: {
     step: number;
@@ -73,8 +76,6 @@ export class ExplorationAgent {
   private readonly startedAt = Date.now();
   private steps = 0;
   private stoppedBecause = 'completed all missions';
-  /** Why each mission threw, in order — the first one explains an 'error' verdict. */
-  private readonly missionFailures: string[] = [];
   /** Set when start or login failed, so no mission ever ran. */
   private setupFailure?: string;
 
@@ -194,9 +195,11 @@ export class ExplorationAgent {
       await this.explore(mission, budget);
       if (mission.status === 'running') mission.status = 'completed';
     } catch (error) {
-      mission.status = 'failed';
-      this.missionFailures.push(`${mission.name}: ${(error as Error).message}`);
-      this.log(`mission ${mission.name} failed: ${(error as Error).message}`);
+      // The agent broke, not the application: this mission proves nothing.
+      mission.status = 'errored';
+      // The report gets the first line; the job log keeps Playwright's call log.
+      mission.error = (error as Error).message.split('\n')[0];
+      this.log(`mission ${mission.name} errored: ${(error as Error).message}`);
     }
   }
 
@@ -207,25 +210,13 @@ export class ExplorationAgent {
       this.steps += 1;
       const state = await this.executor.observe();
       this.memory.observe(state);
-      this.coverage.visitState(state);
+      this.coverage.visitState(state, mission.id);
       this.coverage.recordAction(state, result.action, mission.id);
       this.memory.record(result);
       await this.judge(state, result, mission);
 
       if (!result.ok) {
-        // A failing expectation in a critical journey is itself a defect.
-        await this.raise(
-          {
-            oracle: 'critical-journey',
-            title: `Critical journey "${mission.name}" broke at: ${describeStep(step)}`,
-            detail: result.error ?? 'step failed',
-            severity: 'critical',
-            fingerprintKey: `journey ${mission.id} ${describeStep(step)}`,
-          },
-          state,
-          result.action,
-          mission,
-        );
+        await this.report(journeyBreak(mission, step, result, state), mission);
         return false;
       }
     }
@@ -243,7 +234,7 @@ export class ExplorationAgent {
 
       const state = await this.executor.observe();
       this.memory.observe(state);
-      this.coverage.visitState(state);
+      this.coverage.visitState(state, mission.id);
       await this.judge(state, undefined, mission);
 
       const candidates = (await this.executor.availableActions(state)).filter((action) => {
@@ -289,7 +280,7 @@ export class ExplorationAgent {
 
       const nextState = await this.executor.observe();
       this.memory.observe(nextState);
-      this.coverage.visitState(nextState);
+      this.coverage.visitState(nextState, mission.id);
       await this.judge(nextState, result, mission, state);
     }
   }
@@ -336,31 +327,6 @@ export class ExplorationAgent {
     }
   }
 
-  /** Raise a finding the agent produced itself (outside the oracle suite). */
-  private async raise(
-    params: { oracle: string; title: string; detail: string; severity: Finding['severity']; fingerprintKey: string },
-    state: ApplicationState,
-    action: Action | undefined,
-    mission: Mission,
-  ): Promise<void> {
-    const finding: Finding = {
-      id: shortHash(`${params.fingerprintKey}:${Date.now()}`, 8),
-      oracle: params.oracle,
-      title: params.title,
-      detail: params.detail,
-      severity: params.severity,
-      fingerprint: shortHash(`${params.oracle}::${state.route}::${params.fingerprintKey}`, 12),
-      stateId: state.id,
-      route: state.route,
-      url: state.location,
-      action,
-      observations: [],
-      missionId: mission.id,
-      at: new Date().toISOString(),
-    };
-    await this.report(finding, mission);
-  }
-
   private async report(finding: Finding, mission?: Mission): Promise<void> {
     const known = this.defects.get(finding.fingerprint);
     this.events.onFinding?.(finding);
@@ -388,10 +354,41 @@ export class ExplorationAgent {
     this.log(`verifying ${candidates.length} candidate defect(s)`);
     const verifier = new DefectVerifier(
       this.defects,
-      (steps, label) => this.replay(steps, label),
+      (defect, label) => {
+        const journey = this.brokenJourney(defect);
+        return journey ? this.replayJourney(journey, label) : this.replay(defect.steps, label);
+      },
       this.config.limits.verificationAttempts,
     );
     await verifier.verify(candidates);
+  }
+
+  /** The scripted mission a defect says broke, if it is a critical journey break. */
+  private brokenJourney(defect: Defect): Mission | undefined {
+    if (defect.findings[0]?.oracle !== JOURNEY_ORACLE) return undefined;
+    return this.missions.find((mission) => mission.id === defect.missionId && mission.script?.length);
+  }
+
+  /**
+   * Re-run a broken journey's script from a clean state. The step replay below
+   * cannot verify one: it turns expectations into plain waits and only re-runs
+   * the oracles, so a broken journey would always look "not reproduced".
+   */
+  private async replayJourney(mission: Mission, label: string): Promise<ReplayOutcome> {
+    const findings: Finding[] = [];
+    await this.executor.reset();
+    if (mission.startUrl) {
+      await this.executor.runScriptedStep({ kind: 'goto', value: mission.startUrl });
+    }
+    for (const step of mission.script ?? []) {
+      const result = await this.executor.runScriptedStep(step);
+      if (!result.ok) {
+        findings.push(journeyBreak(mission, step, result, await this.executor.observe()));
+        break;
+      }
+    }
+    const evidence = await this.executor.captureEvidence(label);
+    return { fingerprints: findings.map((finding) => finding.fingerprint), findings, evidence };
   }
 
   /** Replay a reproduction path from a clean state and re-run the oracles. */
@@ -468,10 +465,12 @@ export class ExplorationAgent {
     const finishedAt = Date.now();
     const defects = this.defects.list();
     const recommendation = this.setupFailure ? 'error' : recommend(defects, this.config, this.missions);
+    // Without a setup failure, 'error' means every attempted mission errored.
+    const errored = this.missions.find((mission) => mission.status === 'errored');
     const stoppedBecause = this.setupFailure
       ? this.setupFailure
-      : recommendation === 'error'
-        ? `every mission failed to execute (${this.missionFailures[0] ?? 'no reason recorded'})`
+      : recommendation === 'error' && errored
+        ? `every mission failed to execute (${errored.name}: ${errored.error})`
         : this.stoppedBecause;
     return {
       runId: this.runId,
@@ -504,6 +503,7 @@ export class ExplorationAgent {
  *
  * A run where every attempted mission threw is an 'error', never a 'pass':
  * "the agent could not test this" must not look like "the agent found nothing".
+ * A journey that broke ('failed') did test the application; its defect decides.
  */
 export function recommend(
   defects: Defect[],
@@ -511,7 +511,7 @@ export function recommend(
   missions: Mission[] = [],
 ): RunSummary['recommendation'] {
   const attempted = missions.filter((mission) => mission.status !== 'skipped');
-  if (attempted.length > 0 && attempted.every((mission) => mission.status === 'failed')) {
+  if (attempted.length > 0 && attempted.every((mission) => mission.status === 'errored')) {
     return 'error';
   }
   const actionable = defects.filter(
@@ -526,6 +526,35 @@ export function recommend(
   if (blocking.length > 0) return config.mode === 'blocking' ? 'block' : 'review';
   if (actionable.length > 0) return 'review';
   return 'pass';
+}
+
+/**
+ * A failing step in a critical journey is itself a defect. The run and the
+ * verification replay both build it here, so a replay that breaks at the same
+ * step produces the same fingerprint.
+ */
+function journeyBreak(
+  mission: Mission,
+  step: ScriptedStep,
+  result: ActionResult,
+  state: ApplicationState,
+): Finding {
+  const key = `journey ${mission.id} ${describeStep(step)}`;
+  return {
+    id: shortHash(`${key}:${Date.now()}`, 8),
+    oracle: JOURNEY_ORACLE,
+    title: `Critical journey "${mission.name}" broke at: ${describeStep(step)}`,
+    detail: result.error ?? 'step failed',
+    severity: 'critical',
+    fingerprint: shortHash(`${JOURNEY_ORACLE}::${state.route}::${key}`, 12),
+    stateId: state.id,
+    route: state.route,
+    url: state.location,
+    action: result.action,
+    observations: [],
+    missionId: mission.id,
+    at: new Date().toISOString(),
+  };
 }
 
 function describeStep(step: ScriptedStep): string {

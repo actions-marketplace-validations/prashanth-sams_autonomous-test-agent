@@ -7,11 +7,18 @@ export class CoverageTracker {
   private readonly elements = new Set<string>();
   private readonly byKind = new Map<string, number>();
   private readonly missionSteps = new Map<string, number>();
+  /** missionId -> routes it reached; a Set keeps the order they were first reached. */
+  private readonly missionRoutes = new Map<string, Set<string>>();
   private actions = 0;
 
-  visitState(state: ApplicationState): void {
+  visitState(state: ApplicationState, missionId?: string): void {
     this.routes.add(state.route);
     this.states.add(state.id);
+    if (missionId) {
+      const routes = this.missionRoutes.get(missionId) ?? new Set<string>();
+      routes.add(state.route);
+      this.missionRoutes.set(missionId, routes);
+    }
   }
 
   recordAction(state: ApplicationState, action: Action, missionId?: string): void {
@@ -34,6 +41,7 @@ export class CoverageTracker {
         name: mission.name,
         status: mission.status,
         steps: this.missionSteps.get(mission.id) ?? 0,
+        routes: [...(this.missionRoutes.get(mission.id) ?? [])],
       })),
     };
   }

@@ -20,6 +20,7 @@ import { InvariantOracle } from './oracles/invariants';
 import { ConsoleErrorOracle } from './oracles/runtime';
 import type { OracleContext } from './oracles/types';
 import { RiskEngine } from './planning/risk';
+import { toHtml, toMarkdown } from './reporting/writer';
 import { SafetyPolicy } from './safety/policy';
 import { maskRoute } from './util/route';
 
@@ -119,6 +120,70 @@ const steps: JourneyStep[] = [
   },
 ];
 
+/**
+ * An executor over a fake app whose screens are just routes, driven only by
+ * scripted steps. The first `expectFailures` expectText steps fail, and opening
+ * `crashOn` throws the way a closed page or a navigation timeout does.
+ */
+function routeExecutor(options: { expectFailures?: number; crashOn?: string } = {}): PlatformExecutor {
+  let route = '/';
+  let expectFailures = options.expectFailures ?? 0;
+  const here = () =>
+    state({
+      id: `state${route}`,
+      route,
+      location: `https://shop.example.com${route}`,
+      text: `Demo shop content for ${route}`,
+    });
+  return {
+    platform: 'web',
+    name: 'stub',
+    start: async () => undefined,
+    observe: async () => here(),
+    availableActions: async () => [],
+    // Like the web executor, a replayed expectation is only a wait, and it succeeds.
+    execute: async (action) => ({
+      action,
+      ok: true,
+      durationMs: 0,
+      stateBefore: here().id,
+      stateAfter: here().id,
+      noOp: false,
+      observations: [],
+    }),
+    runScriptedStep: async (step) => {
+      if (step.kind === 'goto' && step.value === options.crashOn) {
+        throw new Error('Target page closed\nCall log:\n  - navigating');
+      }
+      const stateBefore = here().id;
+      if (step.kind === 'goto') route = step.value ?? '/';
+      const broken = step.kind === 'expectText' && expectFailures > 0;
+      if (broken) expectFailures -= 1;
+      return {
+        action: {
+          id: `${step.kind}${route}`,
+          kind: step.kind === 'goto' ? 'navigate' : 'wait',
+          value: step.value,
+          description: step.kind === 'goto' ? `Open ${step.value}` : `Expect to see "${step.value}"`,
+        },
+        ok: !broken,
+        error: broken ? `expected to see "${step.value}" but it was not on the page` : undefined,
+        durationMs: 0,
+        stateBefore,
+        stateAfter: here().id,
+        noOp: false,
+        observations: [],
+      };
+    },
+    captureEvidence: async () => [],
+    drainObservations: () => [],
+    reset: async () => {
+      route = '/';
+    },
+    stop: async () => undefined,
+  };
+}
+
 test('impact analysis maps changed files to areas and journeys', () => {
   const analysis = analyzeImpact(
     { base: 'main', head: 'pr', changedFiles: ['web/components/PaymentForm.tsx'] },
@@ -203,7 +268,7 @@ test('a clean run passes', () => {
   assert.equal(recommend([], config({ mode: 'blocking' })), 'pass');
 });
 
-test('a run whose every mission failed reports an error, not a pass', () => {
+test('a run whose every mission errored reports an error, not a pass', () => {
   const mission = (status: Mission['status']): Mission => ({
     id: `m-${status}`,
     name: `mission ${status}`,
@@ -218,16 +283,21 @@ test('a run whose every mission failed reports an error, not a pass', () => {
 
   // Nothing was tested, so an empty defect list proves nothing.
   assert.equal(
-    recommend([], config({ mode: 'advisory' }), [mission('failed'), mission('failed')]),
+    recommend([], config({ mode: 'advisory' }), [mission('errored'), mission('errored')]),
     'error',
   );
   // One mission that got through is enough for the defects to mean something.
   assert.equal(
-    recommend([], config({ mode: 'advisory' }), [mission('failed'), mission('completed')]),
+    recommend([], config({ mode: 'advisory' }), [mission('errored'), mission('completed')]),
     'pass',
   );
   // A run stopped by its budget has not errored.
   assert.equal(recommend([], config({ mode: 'advisory' }), [mission('skipped')]), 'pass');
+  // A journey that broke did run: its reproduced defect decides, not an agent error.
+  const broken = new DefectRepository();
+  broken.add(finding({ oracle: 'critical-journey', severity: 'critical' }), steps, []);
+  broken.recordVerification('fp-1', true);
+  assert.equal(recommend(broken.list(), config({ mode: 'blocking' }), [mission('failed')]), 'block');
 });
 
 test('a failed login still produces an error summary instead of throwing', async () => {
@@ -275,6 +345,161 @@ test('a failed login still produces an error summary instead of throwing', async
     assert.match(summary.stoppedBecause, /^authentication failed: .*selector not found/);
     assert.ok(summary.missions.every((mission) => mission.status === 'skipped'));
     assert.deepEqual(calls, ['start', 'evidence:setup-failure', 'stop']);
+    assert.match(toMarkdown(summary), /### Scope tested\n\nNo flows were tested\./);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('the report names each flow that ran and the routes it reached', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  try {
+    const agent = new ExplorationAgent({
+      executor: routeExecutor(),
+      config: config({
+        criticalJourneys: [
+          {
+            id: 'checkout',
+            name: 'Checkout',
+            script: [
+              { kind: 'goto', value: '/checkout' },
+              { kind: 'goto', value: '/confirmation' },
+            ],
+          },
+          {
+            id: 'browse',
+            name: 'Browse products',
+            script: [
+              { kind: 'goto', value: '/products' },
+              { kind: 'goto', value: '/cart' },
+            ],
+          },
+        ],
+        // The two scripts spend the whole budget, so the impact mission is skipped.
+        limits: { ...config().limits, maxSteps: 4 },
+        reporting: { outputDir, video: false, trace: false, har: false },
+      }),
+      missions: [
+        {
+          id: 'retry',
+          name: 'Payments: payment retry',
+          goal: '',
+          rationale: '1 changed file(s) in Payments',
+          source: 'impact-analysis',
+          priority: 50,
+          hints: [],
+          maxSteps: 6,
+          status: 'pending',
+        },
+      ],
+    });
+    const summary = await agent.run();
+
+    // Checkout's leftover budget explored from the start page, so it reached "/" too.
+    assert.deepEqual(
+      summary.coverage.missions.map(({ id, routes }) => [id, routes]),
+      [
+        ['checkout', ['/checkout', '/confirmation', '/']],
+        ['browse', ['/products', '/cart']],
+        ['retry', []],
+      ],
+    );
+
+    const markdown = toMarkdown(summary);
+    const scope = markdown.slice(markdown.indexOf('### Scope tested'), markdown.indexOf('### Not tested'));
+    assert.match(scope, /\| Checkout \| critical journey \| completed \| 2 \| `\/checkout`, `\/confirmation`, `\/` \|/);
+    assert.match(scope, /\| Browse products \| critical journey \| completed \| 2 \| `\/products`, `\/cart` \|/);
+    // A skipped mission is reported as not tested, never as scope.
+    assert.doesNotMatch(scope, /payment retry/);
+    assert.match(markdown, /### Not tested\n\n- Payments: payment retry — skipped \(step budget exhausted\)/);
+
+    const html = toHtml(summary);
+    assert.match(
+      html,
+      /<td>Browse products<\/td>\s*<td>critical journey<\/td>\s*<td>completed<\/td>\s*<td>2<\/td>\s*<td><code>\/products<\/code> <code>\/cart<\/code><\/td>/,
+    );
+    assert.match(html, /<h2>Not tested<\/h2>\s*<ul><li>Payments: payment retry — skipped \(step budget exhausted\)<\/li><\/ul>/);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('a broken critical journey is verified by re-running its script', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  const run = (expectFailures: number) =>
+    new ExplorationAgent({
+      executor: routeExecutor({ expectFailures }),
+      config: config({
+        criticalJourneys: [
+          {
+            id: 'checkout',
+            name: 'Checkout',
+            script: [
+              { kind: 'goto', value: '/checkout' },
+              { kind: 'expectText', value: 'Order confirmed' },
+            ],
+          },
+        ],
+        // No budget is left for exploration, so the broken journey is the only mission.
+        limits: { ...config().limits, maxSteps: 8, verificationAttempts: 2 },
+        reporting: { outputDir, video: false, trace: false, har: false },
+        mode: 'blocking',
+      }),
+    }).run();
+
+  try {
+    // Broken every time: the replay breaks at the same step, so it may block.
+    const broken = await run(Infinity);
+    assert.equal(broken.missions[0]?.status, 'failed');
+    assert.equal(broken.defects[0]?.status, 'reproduced');
+    assert.equal(broken.recommendation, 'block');
+    assert.match(toMarkdown(broken), /\| Checkout \| critical journey \| failed \| 2 \| `\/checkout` \|/);
+
+    // Broken once: the replays re-ran the script and it passed, so it is flaky.
+    const flaky = await run(1);
+    assert.equal(flaky.defects[0]?.status, 'not-reproduced');
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('a mission the agent could not run is errored and listed as not tested', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  const checkout: AgentConfig['criticalJourneys'][number] = {
+    id: 'checkout',
+    name: 'Checkout',
+    script: [{ kind: 'goto', value: '/checkout' }],
+  };
+  const admin: AgentConfig['criticalJourneys'][number] = { id: 'admin', name: 'Admin', startUrl: '/admin' };
+  const run = (criticalJourneys: AgentConfig['criticalJourneys']) =>
+    new ExplorationAgent({
+      executor: routeExecutor({ crashOn: '/admin' }),
+      config: config({
+        criticalJourneys,
+        // No budget is left for exploration, so only the configured journeys run.
+        limits: { ...config().limits, maxSteps: 8 },
+        reporting: { outputDir, video: false, trace: false, har: false },
+      }),
+    }).run();
+
+  try {
+    const mixed = await run([checkout, admin]);
+    assert.deepEqual(mixed.missions.map((mission) => mission.status), ['completed', 'errored']);
+    // Only the first line of the error reaches the report.
+    assert.equal(mixed.missions[1]?.error, 'Target page closed');
+    assert.equal(mixed.recommendation, 'pass');
+    const markdown = toMarkdown(mixed);
+    assert.match(markdown, /1 completed · 0 failed · 1 errored · 0 skipped/);
+    assert.doesNotMatch(
+      markdown.slice(markdown.indexOf('### Scope tested'), markdown.indexOf('### Not tested')),
+      /Admin/,
+    );
+    assert.match(markdown, /### Not tested\n\n- Admin — errored \(Target page closed\)/);
+
+    const allErrored = await run([admin]);
+    assert.equal(allErrored.recommendation, 'error');
+    assert.equal(allErrored.stoppedBecause, 'every mission failed to execute (Admin: Target page closed)');
+    assert.match(toMarkdown(allErrored), /### Scope tested\n\nNo flows were tested\./);
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }

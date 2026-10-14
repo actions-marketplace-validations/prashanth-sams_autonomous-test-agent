@@ -1,4 +1,4 @@
-import type { Defect, EvidenceRef, Finding, JourneyStep } from '@qa-agent/shared-contracts';
+import type { Defect, EvidenceRef, Finding } from '@qa-agent/shared-contracts';
 import type { DefectRepository } from './repository';
 
 export interface ReplayOutcome {
@@ -8,7 +8,8 @@ export interface ReplayOutcome {
   evidence: EvidenceRef[];
 }
 
-export type ReplayFn = (steps: JourneyStep[], label: string) => Promise<ReplayOutcome>;
+/** Replays one candidate from a clean state; the defect decides how it is replayed. */
+export type ReplayFn = (defect: Defect, label: string) => Promise<ReplayOutcome>;
 
 /**
  * "Repeat a suspicious failure before reporting it." Every candidate defect is
@@ -30,7 +31,7 @@ export class DefectVerifier {
         continue;
       }
       for (let attempt = 1; attempt <= this.attempts; attempt += 1) {
-        const outcome = await this.replay(defect.steps, `verify-${defect.id}-${attempt}`);
+        const outcome = await this.replay(defect, `verify-${defect.id}-${attempt}`);
         const reproduced = outcome.fingerprints.includes(defect.fingerprint);
         this.repository.recordVerification(defect.fingerprint, reproduced, outcome.evidence);
         if (reproduced) break;

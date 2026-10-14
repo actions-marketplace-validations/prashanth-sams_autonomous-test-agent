@@ -72,10 +72,23 @@ export interface CoverageReport {
   actionsExecuted: number;
   actionsByKind: Record<string, number>;
   elementsInteracted: number;
-  missions: { id: string; name: string; status: MissionStatus; steps: number }[];
+  /** Per mission: actions taken, and the routes it reached in the order first reached. */
+  missions: { id: string; name: string; status: MissionStatus; steps: number; routes: string[] }[];
 }
 
-export type MissionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'blocked';
+/**
+ * 'failed' means the mission ran and its flow broke (a critical journey step
+ * failed), which is a test result. 'errored' means the agent itself threw, so
+ * the mission proves nothing about the application.
+ */
+export type MissionStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'errored'
+  | 'skipped'
+  | 'blocked';
 
 export interface Mission {
   id: string;
@@ -94,6 +107,8 @@ export interface Mission {
   /** Budget in agent steps. */
   maxSteps: number;
   status: MissionStatus;
+  /** Why the agent could not finish this mission; set when status is 'errored'. */
+  error?: string;
 }
 
 export interface ScriptedStep {

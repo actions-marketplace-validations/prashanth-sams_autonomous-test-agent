@@ -6,6 +6,8 @@ const SEVERITY_ORDER: Severity[] = ['info', 'low', 'medium', 'high', 'critical']
 /** How much each oracle is trusted before verification. */
 const ORACLE_BASE_CONFIDENCE: Record<string, number> = {
   'page-crash': 0.95,
+  // Both are checks humans configured, not heuristics.
+  'critical-journey': 0.9,
   'business-invariant': 0.9,
   'network-failures': 0.8,
   'console-errors': 0.7,
