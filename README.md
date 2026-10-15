@@ -141,9 +141,10 @@ node apps/web-agent/dist/cli.js pr \
 The diff is mapped to areas and journeys through `impactMap` in the config, in
 three layers: deterministic critical journeys, impact mapping, then broadening
 when confidence is low. Budget the selected journeys leave over goes to free
-exploration of the whole app; with `freeExploration: false` the selected
-journeys share the whole budget instead, and a diff that maps to no journey
-tests nothing. The PR comment explains the selection:
+exploration of the whole app. With `freeExploration: false`, only the critical
+journeys and the journeys the diff maps to run, each within its own budget, so
+areas the change did not touch are not tested. The PR comment explains the
+selection:
 
 ```
 | Area                | Confidence | Journeys                              |
@@ -250,7 +251,7 @@ See [agent.example.yaml](agent.example.yaml). Key sections:
 | `limits` | Step, time and defect budgets; verification attempts |
 | `safety` | Allowed hosts, prohibited/destructive actions, redaction keys |
 | `impactMap` | Changed paths → area → journeys, with confidence |
-| `freeExploration` | Whether leftover budget explores the whole app (default `true`); `false` tests only the selected journeys |
+| `freeExploration` | Whether leftover budget explores the whole app in `pr` runs (default `true`); `false` tests only the critical and impacted journeys. `explore` runs always explore |
 | `oracles` | Which oracles run, and what noise to ignore |
 | `knownFalsePositives` | Fingerprints humans dismissed in earlier runs |
 | `mode` | `advisory` (default) or `blocking` |

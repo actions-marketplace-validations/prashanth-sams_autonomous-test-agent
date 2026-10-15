@@ -52,6 +52,9 @@ jobs:
           CODE=$?
           set -e
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          # Review (1) is advisory, so it must not mark this step failed. Block (2)
+          # and agent errors (3) still do; the enforce step below decides the job.
+          if [ "$CODE" -eq 1 ]; then exit 0; fi
           exit $CODE
         env:
           PREVIEW_URL: ${{ vars.PREVIEW_URL }}

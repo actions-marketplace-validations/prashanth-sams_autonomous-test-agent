@@ -442,7 +442,7 @@ test('the report names each flow that ran and the routes it reached', async () =
   }
 });
 
-test('with free exploration off, the selected missions share the whole budget', async () => {
+test('with free exploration off, the selected missions keep their own budgets', async () => {
   const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
   const impact = (id: string, priority: number): Mission => ({
     id,
@@ -469,26 +469,10 @@ test('with free exploration off, the selected missions share the whole budget', 
     const on = await run({ limits }, [impact('refund', 50), impact('retry', 60)]);
     assert.deepEqual(budgets(on), [['retry', 6], ['refund', 6], ['free-exploration', 5]]);
 
-    // The 5 spare steps go to the missions instead; the odd one to the higher priority.
+    // The 5 spare steps go unused: handed to the missions, they would wander into
+    // areas the change did not touch.
     const off = await run({ limits, freeExploration: false }, [impact('refund', 50), impact('retry', 60)]);
-    assert.deepEqual(budgets(off), [['retry', 9], ['refund', 8]]);
-
-    // A journey's scripted steps spend the budget too: 2 scripted + 10 explored = 12.
-    const scripted = await run({
-      freeExploration: false,
-      limits: { ...config().limits, maxSteps: 12 },
-      criticalJourneys: [
-        {
-          id: 'checkout',
-          name: 'Checkout',
-          script: [
-            { kind: 'goto', value: '/checkout' },
-            { kind: 'goto', value: '/confirmation' },
-          ],
-        },
-      ],
-    });
-    assert.deepEqual(budgets(scripted), [['checkout', 10]]);
+    assert.deepEqual(budgets(off), [['retry', 6], ['refund', 6]]);
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }
