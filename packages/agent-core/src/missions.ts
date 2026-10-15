@@ -1,24 +1,51 @@
-import type { AgentConfig, Mission } from '@qa-agent/shared-contracts';
+import type { AgentConfig, ImpactAnalysis, ImpactedArea, Mission } from '@qa-agent/shared-contracts';
 import { shortHash } from './util/hash';
 
+type CriticalJourney = AgentConfig['criticalJourneys'][number];
+
 /**
- * Layer 1 of the scope decision: deterministic critical journeys that run on
- * every execution regardless of what impact analysis or AI suggest.
+ * Layer 1 of the scope decision: the deterministic critical journeys. On a PR
+ * run one runs only when the diff maps to it, unless the config opts into
+ * running them all. Without an impact analysis, as in an exploratory session,
+ * there is no diff to select by, so they all run.
  */
-export function criticalJourneyMissions(config: AgentConfig): Mission[] {
-  return config.criticalJourneys.map((journey, index) => ({
-    id: journey.id,
-    name: journey.name,
-    goal: journey.goal ?? `Exercise the ${journey.name} journey end to end`,
-    rationale: 'configured as a critical journey; always runs',
-    source: 'critical-journey',
-    priority: 100 - index,
-    startUrl: journey.startUrl,
-    hints: journey.hints ?? deriveHints(journey.name),
-    script: journey.script,
-    maxSteps: Math.max(8, Math.floor(config.limits.maxSteps / 4)),
-    status: 'pending',
-  }));
+export function criticalJourneyMissions(config: AgentConfig, impact?: ImpactAnalysis): Mission[] {
+  const selective = impact !== undefined && !config.alwaysRunCriticalJourneys;
+  return config.criticalJourneys.flatMap((journey, index): Mission[] => {
+    const area = selective ? impactingArea(journey, impact.areas) : undefined;
+    if (selective && !area) return [];
+    return [
+      {
+        id: journey.id,
+        name: journey.name,
+        goal: journey.goal ?? `Exercise the ${journey.name} journey end to end`,
+        rationale: area
+          ? `configured as a critical journey; the diff maps to it via ${area.area}`
+          : 'configured as a critical journey; always runs',
+        source: 'critical-journey',
+        priority: 100 - index,
+        startUrl: journey.startUrl,
+        hints: journey.hints ?? deriveHints(journey.name),
+        script: journey.script,
+        maxSteps: Math.max(8, Math.floor(config.limits.maxSteps / 4)),
+        status: 'pending',
+      },
+    ];
+  });
+}
+
+/** The impacted area that lists this critical journey, by id or name. */
+export function impactingArea(journey: CriticalJourney, areas: ImpactedArea[]): ImpactedArea | undefined {
+  return areas.find((area) => area.journeys.some((name) => namesJourney(name, journey)));
+}
+
+/** Whether an impact-map journey name refers to this critical journey. */
+export function namesJourney(name: string, journey: CriticalJourney): boolean {
+  return [journey.id, journey.name].some((key) => normalize(key) === normalize(name));
+}
+
+function normalize(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 /** The fallback mission: explore whatever budget is left, unguided. */

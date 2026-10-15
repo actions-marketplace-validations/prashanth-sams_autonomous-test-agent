@@ -7,7 +7,9 @@ target:
   baseUrl: http://localhost:4321
   build: local
 
-# Layer 1 of scope selection: these always run, whatever impact analysis says.
+# Layer 1 of scope selection: scripted, high-value journeys. A PR run runs one
+# only when the diff maps to it, i.e. an impactMap entry below lists its id or
+# name under `journeys`. `explore` runs always run them all.
 criticalJourneys:
   - id: checkout
     name: Checkout
@@ -27,6 +29,11 @@ criticalJourneys:
     goal: A customer can browse products and reach the cart
     startUrl: /products
     hints: [product, cart, add]
+
+# Opt-in: true runs every critical journey on every PR run, whatever the diff
+# touches. `--always-run-critical-journeys` (CLI) or
+# `always-run-critical-journeys: 'true'` (Action) turns it on for one run.
+alwaysRunCriticalJourneys: false
 
 # Business invariants: the part no oracle can guess.
 rules:
@@ -64,11 +71,16 @@ safety:
   allowDestructive: false
   redactKeys: [password, token, secret, authorization, apiKey]
 
-# Layer 2 of scope selection: which code changes imply which journeys.
+# Layer 2 of scope selection: which code changes imply which journeys. A
+# journey named like a critical journey (`checkout`, `browse`) selects it too.
 impactMap:
   - paths: ['examples/demo-app/src/**', 'web/components/Payment*']
     area: Checkout / Payments
     journeys: [checkout, payment retry, declined card]
+    confidence: 0.9
+  - paths: ['examples/demo-app/src/**', 'web/components/Product*']
+    area: Catalog
+    journeys: [browse]
     confidence: 0.9
   - paths: ['services/payment/**', 'api/payment-openapi.yaml']
     area: Payments API
@@ -79,11 +91,12 @@ impactMap:
     journeys: [login, session expiry, logout]
     confidence: 0.85
 
-# Layer 3 of scope selection: budget the missions above leave over goes to free
-# exploration of the whole app, which is also how low impact confidence widens
-# the scope. false tests only the critical journeys and the journeys the diff
-# maps to, each within its own budget. It narrows PR runs only; `explore` runs
-# always explore.
+# Layer 3 of scope selection, opt-in: true sends the budget the missions above
+# leave over to free exploration of the whole app, which is also how low impact
+# confidence widens the scope. Off by default, so a PR run tests only the
+# journeys the diff maps to, each within its own budget. `--free-exploration` (CLI) or `free-exploration: 'true'` (Action)
+# turns it on for one run. It applies to PR runs only; `explore` runs always
+# explore.
 freeExploration: false
 
 oracles:

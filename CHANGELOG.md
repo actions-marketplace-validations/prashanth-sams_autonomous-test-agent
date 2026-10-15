@@ -4,6 +4,52 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are
 this repository's release tags.
 
+## [1.0.6] - 2026-10-16
+
+### Added
+
+- `--free-exploration` CLI flag and `free-exploration` Action input. Each turns
+  free exploration on for one `pr` run without changing the config.
+- `alwaysRunCriticalJourneys` config option, default `false`, with an
+  `--always-run-critical-journeys` CLI flag and an
+  `always-run-critical-journeys` Action input. Turn it on to run every
+  critical journey on every `pr` run, as before.
+- When the diff leaves critical journeys out, the report's impact notes name
+  them: "Critical journeys run only when the diff maps to them; not run: …".
+
+### Changed
+
+- **`freeExploration` now defaults to `false`.** Nothing falls back to
+  exploring the rest of the app unless the config sets `freeExploration: true`
+  or the run passes the new flag or input. Configs that omitted the key and
+  relied on the fallback must now set it. `explore` runs still always explore.
+- **Critical journeys no longer run on every pull request.** A `pr` run runs a
+  critical journey only when an impacted area in `impactMap` lists its `id` or
+  `name` under `journeys`. To keep a journey running on the PRs that touch it,
+  list it there. To run them all on every PR, as before, set
+  `alwaysRunCriticalJourneys: true`. `explore` runs still run every critical
+  journey.
+- An impacted journey that names a critical journey runs once, as the scripted
+  critical journey, instead of also as a separate impact-analysis mission. The
+  budget it no longer takes goes to the other impacted journeys.
+- `agent.example.yaml` maps `examples/demo-app/src/**` to the `browse` critical
+  journey through a new Catalog area, so this repository's PRs still run it
+  when the demo app changes.
+- When `git diff` fails, the log no longer says the scope broadens unless free
+  exploration is on; it says which journeys, if any, still run.
+- The Action's `comment: 'true'` posts each run's report as a new comment at
+  the bottom of the PR and deletes the previous one, instead of editing the
+  first comment in place. Each report starts with the commit, a link to the
+  run and the time, so a new push that reaches the same result still reads as
+  new. Each run now notifies PR subscribers.
+- `.github/workflows/qa-agent.yml` runs the Action itself (`uses: ./`, with
+  `comment: 'true'`) instead of calling the CLI and posting its own comment, so
+  this repository's PRs test the Action as other repositories use it. Its
+  evidence artifact is now named `autonomous-test-agent-<attempt>-<run-id>`
+  instead of `qa-agent-evidence`, and the report is also written to the job
+  summary. On PRs opened before this change, the old report comment is no
+  longer updated; delete it by hand.
+
 ## [1.0.4] - 2026-10-15
 
 ### Added

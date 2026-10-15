@@ -1,4 +1,4 @@
-# Autonomous Exploratory Testing Agent
+# Autonomous Test Agent
 
 One shared exploratory-testing core with platform-specific executors. **The web
 agent (Playwright) is implemented**; mobile and desktop executors plug into the
@@ -96,9 +96,12 @@ rules:
 - The report states which journeys were selected **and why**, lists every flow
   it **tested** with the routes that flow reached, and names the ones that were
   **not tested**.
-- Low impact confidence **broadens** the scope; it never silently narrows it.
-  Turning `freeExploration` off turns broadening off too, and the report says so.
-- Critical journeys always run, whatever impact analysis suggests.
+- A pull request tests **only what its diff touches**: the journeys it maps to,
+  critical journeys included. Running every critical journey
+  (`alwaysRunCriticalJourneys`) and exploring the rest of the app
+  (`freeExploration`) are both opt-in. Low impact confidence broadens the scope
+  only with free exploration on; otherwise the report says the scope stayed
+  narrow and names the critical journeys it did not run.
 - Destructive actions are blocked by default; `advisory` mode is the default and
   cannot block a merge.
 
@@ -138,13 +141,22 @@ node apps/web-agent/dist/cli.js pr \
   --url https://preview-123.example.com
 ```
 
-The diff is mapped to areas and journeys through `impactMap` in the config, in
-three layers: deterministic critical journeys, impact mapping, then broadening
-when confidence is low. Budget the selected journeys leave over goes to free
-exploration of the whole app. With `freeExploration: false`, only the critical
-journeys and the journeys the diff maps to run, each within its own budget, so
-areas the change did not touch are not tested. The PR comment explains the
-selection:
+The diff is mapped to areas and journeys through `impactMap` in the config.
+Only the journeys the diff maps to run, each within its own budget, so areas the
+change did not touch are not tested. A critical journey is selected the same
+way: an impacted area lists its `id` or `name` under `journeys`, and the
+journey then runs once, with its script. Two wider scopes are off by default;
+turn either on in the config, or with a flag for a single run, when you need
+it:
+
+- `alwaysRunCriticalJourneys: true` (`--always-run-critical-journeys`) runs
+  every critical journey on every PR, whatever the diff touches.
+- `freeExploration: true` (`--free-exploration`) spends the budget the selected
+  journeys leave over exploring the rest of the app, and lets low impact
+  confidence broaden the scope.
+
+`explore` runs always run every critical journey and explore. The PR comment
+explains the selection:
 
 ```
 | Area                | Confidence | Journeys                              |
@@ -159,7 +171,7 @@ appear under **Not tested**:
 | Flow                          | Type             | Result    | Steps | Routes                     |
 | Checkout                      | critical journey | completed | 21    | /checkout                  |
 | Browse products               | critical journey | completed | 15    | /products, /cart, /        |
-| Checkout / Payments: checkout | impact analysis  | completed | 14    | /, /checkout, /cart, …     |
+| Checkout / Payments: payment retry | impact analysis | completed | 14 | /, /checkout, /cart, … |
 ```
 
 Exit codes: `0` pass, `1` review, `2` block, `3` agent error.
@@ -170,10 +182,11 @@ something when at least one mission actually ran. A mission is **errored** when
 the agent itself broke while running it, and **failed** when it ran and its
 journey broke. A failed journey is a test result: its defect decides the
 verdict, never exit code `3`. A run that selects nothing, such as a diff that
-maps to no journey with `freeExploration: false`, exits `0` but is reported as
-**Nothing to test**, never as passed.
-`.github/workflows/qa-agent.yml` wires this into GitHub Actions, uploads the
-evidence directory and keeps a single updated PR comment.
+maps to no journey, exits `0` but is reported as **Nothing to test**, never as
+passed.
+`.github/workflows/qa-agent.yml` runs this repository's own Action
+(`uses: ./`) on every pull request against the demo app, so each PR also tests
+the Action the way other repositories use it.
 
 ## Use it as a GitHub Action
 
@@ -206,7 +219,8 @@ jobs:
 
 The action builds the agent and installs Chromium itself; the caller supplies a
 running preview environment. Without `fetch-depth: 0` the agent cannot map the
-diff to journeys and broadens the scope instead of narrowing it.
+diff to journeys, so nothing runs unless `alwaysRunCriticalJourneys` or
+`freeExploration` is on.
 
 ### Inputs
 
@@ -217,10 +231,12 @@ diff to journeys and broadens the scope instead of narrowing it.
 | `config` | — | Agent config path, relative to the caller's repository root |
 | `base` / `head` | `origin/<base_ref>` / `github.sha` | Refs compared in `pr` mode |
 | `changed-files` | — | Comma-separated paths, instead of running `git diff` |
+| `always-run-critical-journeys` | `false` | `pr` mode: run every critical journey, not only the ones the diff maps to. `false` leaves it to the config, which defaults to off |
+| `free-exploration` | `false` | `pr` mode: also explore the whole app with the leftover budget. `false` leaves it to the config, which defaults to off |
 | `max-steps` | — | Override the step budget from the config |
 | `output-dir` | `qa-agent-runs` | Where reports and evidence are written |
 | `blocking` | `false` | Allow a reproduced blocking defect to fail the job |
-| `comment` | `false` | Post/update one PR comment (needs `pull-requests: write`) |
+| `comment` | `false` | Post the report as a PR comment, replacing the previous one (needs `pull-requests: write`) |
 | `upload-artifact` | `true` | Upload the run directory as a workflow artifact |
 
 ### Outputs
@@ -235,8 +251,11 @@ diff to journeys and broadens the scope instead of narrowing it.
 
 The job fails only when the agent could not execute, or when `blocking: 'true'`
 and a reproduced defect recommends blocking; a `review` result stays advisory.
-The report is written to the job summary either way. Commenting is skipped for
-pull requests from forks, whose tokens cannot write to the PR.
+The report is written to the job summary either way. With `comment: 'true'`,
+each run posts its report at the bottom of the PR, stamped with the commit and
+a link to the run, and deletes the previous report, so the PR keeps one, always
+the latest. Commenting is skipped for pull requests from forks, whose tokens
+cannot write to the PR.
 
 ## Configuration
 
@@ -246,12 +265,13 @@ See [agent.example.yaml](agent.example.yaml). Key sections:
 | --- | --- |
 | `target` | Base URL and build identifier |
 | `auth` | Deterministic login steps or a saved `storageState` |
-| `criticalJourneys` | Always-run journeys, optionally fully scripted |
+| `criticalJourneys` | High-value journeys, optionally fully scripted. A PR runs one when an impacted area lists its `id` or `name`; `explore` runs them all |
+| `alwaysRunCriticalJourneys` | Opt-in (default `false`): run every critical journey on every `pr` run, whatever the diff touches |
 | `rules` | Business invariants the agent cannot infer |
 | `limits` | Step, time and defect budgets; verification attempts |
 | `safety` | Allowed hosts, prohibited/destructive actions, redaction keys |
 | `impactMap` | Changed paths → area → journeys, with confidence |
-| `freeExploration` | Whether leftover budget explores the whole app in `pr` runs (default `true`); `false` tests only the critical and impacted journeys. `explore` runs always explore |
+| `freeExploration` | Opt-in (default `false`): whether leftover budget explores the whole app in `pr` runs. Off, a PR tests only the journeys its diff maps to. `explore` runs always explore |
 | `oracles` | Which oracles run, and what noise to ignore |
 | `knownFalsePositives` | Fingerprints humans dismissed in earlier runs |
 | `mode` | `advisory` (default) or `blocking` |
@@ -268,6 +288,9 @@ qa-web-agent pr      --base <ref> --head <ref> [--config agent.yaml] [options]
 --out <dir>            Output directory (default: runs)
 --blocking             Allow the agent to recommend blocking a merge
 --changed-files <a,b>  Explicit file list instead of running git diff
+--free-exploration     pr: explore the whole app with the leftover budget
+--always-run-critical-journeys
+                       pr: run every critical journey, impacted or not
 --json                 Print the run summary as JSON
 ```
 

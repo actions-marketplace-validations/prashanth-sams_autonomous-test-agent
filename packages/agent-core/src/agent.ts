@@ -93,7 +93,7 @@ export class ExplorationAgent {
     this.evidence = new EvidenceCollector(this.config.reporting.outputDir, this.runId, this.policy);
 
     const targeted = options.missions ?? [];
-    const critical = criticalJourneyMissions(this.config);
+    const critical = criticalJourneyMissions(this.config, this.impact);
     const planned = [...critical, ...targeted].sort((a, b) => b.priority - a.priority);
     const usedBudget = planned.reduce((total, mission) => total + mission.maxSteps, 0);
     const leftover = this.config.limits.maxSteps - usedBudget;

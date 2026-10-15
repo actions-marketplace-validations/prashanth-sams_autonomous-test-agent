@@ -9,6 +9,8 @@ export function defaultConfig(baseUrl: string): AgentConfig {
   return {
     target: { baseUrl },
     criticalJourneys: [],
+    // Like free exploration, running critical journeys the diff does not touch is opt-in.
+    alwaysRunCriticalJourneys: false,
     rules: [],
     limits: {
       maxSteps: 60,
@@ -34,7 +36,8 @@ export function defaultConfig(baseUrl: string): AgentConfig {
       redactKeys: ['password', 'token', 'secret', 'authorization', 'apiKey', 'api_key'],
     },
     impactMap: [],
-    freeExploration: true,
+    // A PR run tests what the diff touches; exploring the rest is opt-in.
+    freeExploration: false,
     oracles: {
       consoleErrors: true,
       networkFailures: true,
