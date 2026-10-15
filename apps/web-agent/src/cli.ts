@@ -9,7 +9,7 @@ interface Flags {
   [key: string]: string | boolean;
 }
 
-const USAGE = `Autonomous Test Agent — web (Playwright)
+const USAGE = `Autonomous Web Testing Agent
 
 Usage:
   qa-web-agent explore [--url <baseUrl>] [--config agent.yaml] [options]
