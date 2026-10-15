@@ -37,6 +37,11 @@ this repository's release tags.
   when the demo app changes.
 - When `git diff` fails, the log no longer says the scope broadens unless free
   exploration is on; it says which journeys, if any, still run.
+- The Action's `comment: 'true'` posts each run's report as a new comment at
+  the bottom of the PR and deletes the previous one, instead of editing the
+  first comment in place. Each report starts with the commit, a link to the
+  run and the time, so a new push that reaches the same result still reads as
+  new. Each run now notifies PR subscribers.
 
 ## [1.0.4] - 2026-10-15
 

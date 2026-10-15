@@ -235,7 +235,7 @@ diff to journeys, so nothing runs unless `alwaysRunCriticalJourneys` or
 | `max-steps` | — | Override the step budget from the config |
 | `output-dir` | `qa-agent-runs` | Where reports and evidence are written |
 | `blocking` | `false` | Allow a reproduced blocking defect to fail the job |
-| `comment` | `false` | Post/update one PR comment (needs `pull-requests: write`) |
+| `comment` | `false` | Post the report as a PR comment, replacing the previous one (needs `pull-requests: write`) |
 | `upload-artifact` | `true` | Upload the run directory as a workflow artifact |
 
 ### Outputs
@@ -250,8 +250,11 @@ diff to journeys, so nothing runs unless `alwaysRunCriticalJourneys` or
 
 The job fails only when the agent could not execute, or when `blocking: 'true'`
 and a reproduced defect recommends blocking; a `review` result stays advisory.
-The report is written to the job summary either way. Commenting is skipped for
-pull requests from forks, whose tokens cannot write to the PR.
+The report is written to the job summary either way. With `comment: 'true'`,
+each run posts its report at the bottom of the PR, stamped with the commit and
+a link to the run, and deletes the previous report, so the PR keeps one, always
+the latest. Commenting is skipped for pull requests from forks, whose tokens
+cannot write to the PR.
 
 ## Configuration
 
