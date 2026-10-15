@@ -44,6 +44,7 @@ function config(patch: Partial<AgentConfig> = {}): AgentConfig {
       redactKeys: ['password'],
     },
     impactMap: [],
+    freeExploration: true,
     oracles: {
       consoleErrors: true,
       networkFailures: true,
@@ -220,6 +221,23 @@ test('an empty diff never narrows testing to nothing', () => {
   const analysis = analyzeImpact({ base: 'main', head: 'pr', changedFiles: [] }, config());
   assert.equal(analysis.confidence, 0);
   assert.equal(analysis.broadened, true);
+});
+
+test('with free exploration off, low confidence says testing stays on the mapped journeys', () => {
+  const unmapped = analyzeImpact(
+    { base: 'main', head: 'pr', changedFiles: ['services/unknown/thing.ts'] },
+    config({ freeExploration: false }),
+  );
+  // Broadening is free exploration, so there is nothing to broaden into.
+  assert.equal(unmapped.broadened, false);
+  assert.ok(unmapped.notes.some((note) => note.includes('free exploration is off, so nothing beyond')));
+
+  const empty = analyzeImpact(
+    { base: 'main', head: 'pr', changedFiles: [] },
+    config({ freeExploration: false }),
+  );
+  assert.equal(empty.broadened, false);
+  assert.ok(empty.notes.some((note) => note.includes('free exploration is off, so no journey is selected')));
 });
 
 test('identical findings merge into one defect instead of spamming the PR', () => {
@@ -419,6 +437,96 @@ test('the report names each flow that ran and the routes it reached', async () =
       /<td>Browse products<\/td>\s*<td>critical journey<\/td>\s*<td>completed<\/td>\s*<td>2<\/td>\s*<td><code>\/products<\/code> <code>\/cart<\/code><\/td>/,
     );
     assert.match(html, /<h2>Not tested<\/h2>\s*<ul><li>Payments: payment retry — skipped \(step budget exhausted\)<\/li><\/ul>/);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('with free exploration off, the selected missions share the whole budget', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  const impact = (id: string, priority: number): Mission => ({
+    id,
+    name: `Payments: ${id}`,
+    goal: '',
+    rationale: '1 changed file(s) in Payments',
+    source: 'impact-analysis',
+    priority,
+    hints: [],
+    maxSteps: 6,
+    status: 'pending',
+  });
+  const run = (patch: Partial<AgentConfig>, missions: Mission[] = []) =>
+    new ExplorationAgent({
+      executor: routeExecutor(),
+      config: config({ ...patch, reporting: { outputDir, video: false, trace: false, har: false } }),
+      missions,
+    }).run();
+  const budgets = (summary: { missions: Mission[] }) =>
+    summary.missions.map(({ id, maxSteps }) => [id, maxSteps]);
+
+  try {
+    const limits = { ...config().limits, maxSteps: 17 };
+    const on = await run({ limits }, [impact('refund', 50), impact('retry', 60)]);
+    assert.deepEqual(budgets(on), [['retry', 6], ['refund', 6], ['free-exploration', 5]]);
+
+    // The 5 spare steps go to the missions instead; the odd one to the higher priority.
+    const off = await run({ limits, freeExploration: false }, [impact('refund', 50), impact('retry', 60)]);
+    assert.deepEqual(budgets(off), [['retry', 9], ['refund', 8]]);
+
+    // A journey's scripted steps spend the budget too: 2 scripted + 10 explored = 12.
+    const scripted = await run({
+      freeExploration: false,
+      limits: { ...config().limits, maxSteps: 12 },
+      criticalJourneys: [
+        {
+          id: 'checkout',
+          name: 'Checkout',
+          script: [
+            { kind: 'goto', value: '/checkout' },
+            { kind: 'goto', value: '/confirmation' },
+          ],
+        },
+      ],
+    });
+    assert.deepEqual(budgets(scripted), [['checkout', 10]]);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('with free exploration off and nothing selected, the run tests nothing and says so', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  const calls: string[] = [];
+  const executor: PlatformExecutor = {
+    ...routeExecutor(),
+    start: async () => void calls.push('start'),
+    stop: async () => void calls.push('stop'),
+  };
+  try {
+    const noExploration = config({
+      freeExploration: false,
+      reporting: { outputDir, video: false, trace: false, har: false },
+    });
+    const summary = await new ExplorationAgent({
+      executor,
+      config: noExploration,
+      impact: analyzeImpact({ base: 'main', head: 'pr', changedFiles: ['README.md'] }, noExploration),
+    }).run();
+
+    assert.equal(summary.recommendation, 'pass');
+    assert.deepEqual(summary.missions, []);
+    assert.equal(summary.stoppedBecause, 'nothing to test: no journey was selected and free exploration is off');
+    // Nothing to test, so the app is never started, or logged in to.
+    assert.deepEqual(calls, []);
+
+    // A pass that tested nothing must not read like one that tested everything.
+    const markdown = toMarkdown(summary);
+    assert.match(markdown, /^## QA Agent Result: Nothing to test$/m);
+    assert.match(markdown, /Nothing tested — no mission was selected/);
+    assert.doesNotMatch(markdown, /Safe to merge/);
+    // Which changed files the impact map missed is the reader's next question.
+    assert.match(markdown, /### Why no journey was selected\n\n> 1 changed file\(s\) are not in the impact map: README\.md/);
+    assert.match(toHtml(summary), /<span class="verdict">NOTHING TO TEST<\/span>/);
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }

@@ -12,7 +12,9 @@ const STATUS_LABEL: Record<Defect['status'], string> = {
 export function toMarkdown(summary: RunSummary): string {
   const verdict =
     summary.recommendation === 'pass'
-      ? 'Passed'
+      ? summary.missions.length === 0
+        ? 'Nothing to test'
+        : 'Passed'
       : summary.recommendation === 'review'
         ? 'Needs review'
         : summary.recommendation === 'error'
@@ -44,19 +46,24 @@ export function toMarkdown(summary: RunSummary): string {
   lines.push(`**Stopped because:** ${summary.stoppedBecause}`);
   lines.push('');
 
-  if (summary.impact && summary.impact.areas.length > 0) {
-    lines.push('### Why these journeys were selected');
+  // With no area selected the notes are the whole answer: which changed files
+  // the impact map does not cover.
+  const impact = summary.impact;
+  if (impact && (impact.areas.length > 0 || impact.notes.length > 0)) {
+    lines.push(impact.areas.length > 0 ? '### Why these journeys were selected' : '### Why no journey was selected');
     lines.push('');
-    lines.push('| Area | Confidence | Journeys | Changed files |');
-    lines.push('| --- | --- | --- | --- |');
-    for (const area of summary.impact.areas) {
-      lines.push(
-        `| ${area.area} | ${Math.round(area.confidence * 100)}% | ${area.journeys.join(', ')} | ` +
-          `${area.changedPaths.slice(0, 3).join('<br>')}${area.changedPaths.length > 3 ? '<br>…' : ''} |`,
-      );
+    if (impact.areas.length > 0) {
+      lines.push('| Area | Confidence | Journeys | Changed files |');
+      lines.push('| --- | --- | --- | --- |');
+      for (const area of impact.areas) {
+        lines.push(
+          `| ${area.area} | ${Math.round(area.confidence * 100)}% | ${area.journeys.join(', ')} | ` +
+            `${area.changedPaths.slice(0, 3).join('<br>')}${area.changedPaths.length > 3 ? '<br>…' : ''} |`,
+        );
+      }
+      lines.push('');
     }
-    lines.push('');
-    for (const note of summary.impact.notes) lines.push(`> ${note}`);
+    for (const note of impact.notes) lines.push(`> ${note}`);
     lines.push('');
   }
 
@@ -166,6 +173,9 @@ function recommendationText(summary: RunSummary): string {
     case 'review':
       return 'Review before merge — findings need a human decision (advisory mode, or unverified findings).';
     default:
-      return 'Safe to merge from this agent’s perspective.';
+      // A pass with no missions means nothing was selected, not that all is well.
+      return summary.missions.length === 0
+        ? 'Nothing tested — no mission was selected, so this run says nothing about the application.'
+        : 'Safe to merge from this agent’s perspective.';
   }
 }

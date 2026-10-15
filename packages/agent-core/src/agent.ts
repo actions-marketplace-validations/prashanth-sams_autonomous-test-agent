@@ -97,7 +97,19 @@ export class ExplorationAgent {
     const planned = [...critical, ...targeted].sort((a, b) => b.priority - a.priority);
     const usedBudget = planned.reduce((total, mission) => total + mission.maxSteps, 0);
     const leftover = this.config.limits.maxSteps - usedBudget;
-    this.missions = leftover > 3 ? [...planned, explorationMission(leftover)] : planned;
+    if (this.config.freeExploration) {
+      this.missions = leftover > 3 ? [...planned, explorationMission(leftover)] : planned;
+    } else {
+      // Nothing explores the rest of the app, so the selected missions share
+      // the whole budget instead. Scripted steps spend it too.
+      const scripted = planned.reduce((total, mission) => total + (mission.script?.length ?? 0), 0);
+      this.missions = shareBudget(planned, leftover - scripted);
+    }
+    if (this.missions.length === 0) {
+      this.stoppedBecause = this.config.freeExploration
+        ? 'nothing to test: the step budget is too small for any mission'
+        : 'nothing to test: no journey was selected and free exploration is off';
+    }
   }
 
   get runDirectory(): string {
@@ -105,6 +117,9 @@ export class ExplorationAgent {
   }
 
   async run(): Promise<RunSummary> {
+    // With nothing selected there is no reason to start the app or log in.
+    if (this.missions.length === 0) return this.summarize();
+
     // start() is inside the try: it launches the browser before it navigates, so
     // a failed start still has to reach stop() or the process never exits.
     try {
@@ -559,4 +574,15 @@ function journeyBreak(
 
 function describeStep(step: ScriptedStep): string {
   return [step.description, step.kind, step.selector, step.value].filter(Boolean).join(' ').trim();
+}
+
+/** Spread spare steps evenly over the missions; the highest priority get any remainder. */
+function shareBudget(missions: Mission[], spare: number): Mission[] {
+  if (spare <= 0 || missions.length === 0) return missions;
+  const each = Math.floor(spare / missions.length);
+  const remainder = spare % missions.length;
+  return missions.map((mission, index) => ({
+    ...mission,
+    maxSteps: mission.maxSteps + each + (index < remainder ? 1 : 0),
+  }));
 }

@@ -59,16 +59,24 @@ export function analyzeImpact(input: ImpactInput, config: AgentConfig): ImpactAn
     );
   }
   if (input.changedFiles.length === 0) {
-    notes.push('No changed files were supplied; falling back to broad exploration.');
+    notes.push(
+      config.freeExploration
+        ? 'No changed files were supplied; falling back to broad exploration.'
+        : 'No changed files were supplied, and free exploration is off, so no journey is selected.',
+    );
     confidence = 0;
   }
 
-  // Low or unknown confidence must widen the scope, never narrow it.
-  const broadened = confidence < 0.6;
-  if (broadened) {
+  // Low or unknown confidence must widen the scope, never narrow it, unless the
+  // config turned off the free exploration that widening relies on.
+  const lowConfidence = confidence < 0.6;
+  const broadened = lowConfidence && config.freeExploration;
+  if (lowConfidence) {
     notes.push(
       `Impact confidence ${Math.round(confidence * 100)}% is below the 60% threshold, ` +
-        'so exploration is broadened beyond the mapped areas.',
+        (broadened
+          ? 'so exploration is broadened beyond the mapped areas.'
+          : 'but free exploration is off, so nothing beyond the mapped journeys is tested.'),
     );
   }
 
