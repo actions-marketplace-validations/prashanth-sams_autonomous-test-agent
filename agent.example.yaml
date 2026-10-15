@@ -79,6 +79,12 @@ impactMap:
     journeys: [login, session expiry, logout]
     confidence: 0.85
 
+# Layer 3 of scope selection: budget the missions above leave over goes to free
+# exploration of the whole app, which is also how low impact confidence widens
+# the scope. false tests only the selected journeys, which then share the whole
+# budget, and a diff that maps to no journey tests nothing.
+freeExploration: true
+
 oracles:
   consoleErrors: true
   networkFailures: true

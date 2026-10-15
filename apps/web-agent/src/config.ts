@@ -34,6 +34,7 @@ export function defaultConfig(baseUrl: string): AgentConfig {
       redactKeys: ['password', 'token', 'secret', 'authorization', 'apiKey', 'api_key'],
     },
     impactMap: [],
+    freeExploration: true,
     oracles: {
       consoleErrors: true,
       networkFailures: true,

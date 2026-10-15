@@ -70,6 +70,12 @@ export interface AgentConfig {
   limits: LimitsConfig;
   safety: SafetyConfig;
   impactMap: ImpactMapEntry[];
+  /**
+   * Whether budget the selected missions leave over goes to free exploration
+   * of the whole app. When false, the selected missions share the whole
+   * budget, and a run that selects none tests nothing.
+   */
+  freeExploration: boolean;
   oracles: {
     consoleErrors: boolean;
     networkFailures: boolean;

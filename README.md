@@ -97,6 +97,7 @@ rules:
   it **tested** with the routes that flow reached, and names the ones that were
   **not tested**.
 - Low impact confidence **broadens** the scope; it never silently narrows it.
+  Turning `freeExploration` off turns broadening off too, and the report says so.
 - Critical journeys always run, whatever impact analysis suggests.
 - Destructive actions are blocked by default; `advisory` mode is the default and
   cannot block a merge.
@@ -139,7 +140,10 @@ node apps/web-agent/dist/cli.js pr \
 
 The diff is mapped to areas and journeys through `impactMap` in the config, in
 three layers: deterministic critical journeys, impact mapping, then broadening
-when confidence is low. The PR comment explains the selection:
+when confidence is low. Budget the selected journeys leave over goes to free
+exploration of the whole app; with `freeExploration: false` the selected
+journeys share the whole budget instead, and a diff that maps to no journey
+tests nothing. The PR comment explains the selection:
 
 ```
 | Area                | Confidence | Journeys                              |
@@ -164,7 +168,9 @@ not test this" is never reported as a pass — an empty defect list only means
 something when at least one mission actually ran. A mission is **errored** when
 the agent itself broke while running it, and **failed** when it ran and its
 journey broke. A failed journey is a test result: its defect decides the
-verdict, never exit code `3`.
+verdict, never exit code `3`. A run that selects nothing, such as a diff that
+maps to no journey with `freeExploration: false`, exits `0` but is reported as
+**Nothing to test**, never as passed.
 `.github/workflows/qa-agent.yml` wires this into GitHub Actions, uploads the
 evidence directory and keeps a single updated PR comment.
 
@@ -244,6 +250,7 @@ See [agent.example.yaml](agent.example.yaml). Key sections:
 | `limits` | Step, time and defect budgets; verification attempts |
 | `safety` | Allowed hosts, prohibited/destructive actions, redaction keys |
 | `impactMap` | Changed paths → area → journeys, with confidence |
+| `freeExploration` | Whether leftover budget explores the whole app (default `true`); `false` tests only the selected journeys |
 | `oracles` | Which oracles run, and what noise to ignore |
 | `knownFalsePositives` | Fingerprints humans dismissed in earlier runs |
 | `mode` | `advisory` (default) or `blocking` |
