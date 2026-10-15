@@ -1,7 +1,7 @@
 {
   "name": "autonomous-test-agent",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.5",
   "description": "Autonomous exploratory testing agents: one shared testing core, platform-specific executors. Web (Playwright) first.",
   "workspaces": [
     "packages/*",
