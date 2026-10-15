@@ -100,10 +100,9 @@ export class ExplorationAgent {
     if (this.config.freeExploration) {
       this.missions = leftover > 3 ? [...planned, explorationMission(leftover)] : planned;
     } else {
-      // Nothing explores the rest of the app, so the selected missions share
-      // the whole budget instead. Scripted steps spend it too.
-      const scripted = planned.reduce((total, mission) => total + (mission.script?.length ?? 0), 0);
-      this.missions = shareBudget(planned, leftover - scripted);
+      // Only the selected missions run, each within its own budget. Handing them
+      // the leftover would let them wander into areas the change did not touch.
+      this.missions = planned;
     }
     if (this.missions.length === 0) {
       this.stoppedBecause = this.config.freeExploration
@@ -574,15 +573,4 @@ function journeyBreak(
 
 function describeStep(step: ScriptedStep): string {
   return [step.description, step.kind, step.selector, step.value].filter(Boolean).join(' ').trim();
-}
-
-/** Spread spare steps evenly over the missions; the highest priority get any remainder. */
-function shareBudget(missions: Mission[], spare: number): Mission[] {
-  if (spare <= 0 || missions.length === 0) return missions;
-  const each = Math.floor(spare / missions.length);
-  const remainder = spare % missions.length;
-  return missions.map((mission, index) => ({
-    ...mission,
-    maxSteps: mission.maxSteps + each + (index < remainder ? 1 : 0),
-  }));
 }

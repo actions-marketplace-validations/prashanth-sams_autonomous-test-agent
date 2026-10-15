@@ -25,7 +25,8 @@ export interface RunOutput {
 
 /** Wires the web executor into the shared core and produces the reports. */
 export async function runWebAgent(options: RunOptions): Promise<RunOutput> {
-  const { config } = options;
+  // freeExploration narrows PR runs only; an exploratory session always explores.
+  const config = options.diff ? options.config : { ...options.config, freeExploration: true };
   const log = (message: string) => {
     if (!options.quiet) process.stderr.write(`${message}\n`);
   };

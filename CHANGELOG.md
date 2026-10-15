@@ -4,22 +4,24 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are
 this repository's release tags.
 
-## [1.0.4] - 2026-10-14
+## [1.0.4] - 2026-10-15
 
 ### Added
 
 - `freeExploration` config option, default `true`. Set it to `false` to test
-  only the selected journeys:
-  - The selected missions share the whole step budget, split evenly with any
-    remainder going to the highest priority, instead of leaving what is left
-    over to a free-exploration mission. Scripted steps count against the
-    budget.
+  only the critical journeys and the journeys the diff maps to:
+  - Nothing explores the rest of the app. Each selected journey keeps its own
+    step budget, and the steps left over go unused.
   - Low impact confidence no longer broadens the scope, and the impact notes
     in the report say so.
   - When no journey is selected, the run tests nothing.
+  - It applies to `pr` runs only; `explore` runs always explore the whole app.
 
 ### Changed
 
+- `agent.example.yaml` sets `freeExploration: false`, so this repository's
+  pull requests test only the critical journeys and the journeys their changes
+  map to.
 - A run that selects no mission no longer starts the app or logs in. Its
   report reads **Nothing to test** instead of **Passed** and "Safe to merge".
   It still exits `0`, and `recommendation` is still `pass`.
