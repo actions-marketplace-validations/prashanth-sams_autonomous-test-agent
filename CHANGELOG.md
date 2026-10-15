@@ -29,6 +29,9 @@ this repository's release tags.
 ### Fixed
 
 - Reproduction steps in `report.md` show as 1, 2, 3 on GitHub, not i, ii, iii.
+- In `.github/workflows/qa-agent.yml`, a review verdict no longer marks the
+  agent step failed with a "Process completed with exit code 1" error. The job
+  result is unchanged.
 
 ## [1.0.3] - 2026-10-14
 
