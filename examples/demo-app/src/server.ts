@@ -35,6 +35,8 @@ const page = (title: string, body: string, script = ''): string => `<!doctype ht
         background:#2f6feb;color:#fff;font-size:1rem;cursor:pointer}
  button.secondary{background:#e7eaf0;color:#14181f}
  .error{color:#b3261e;margin-top:12px}
+ .hint{display:block;margin-top:4px;font-size:.8rem;color:#6b7380}
+ footer{text-align:center;margin:0 0 32px;font-size:.8rem;color:#6b7380}
 </style></head>
 <body>
 <nav>
@@ -42,6 +44,7 @@ const page = (title: string, body: string, script = ''): string => `<!doctype ht
   <a href="/checkout">Checkout</a><a href="/profile">Profile</a><a href="/help">Help</a>
 </nav>
 <main>${body}</main>
+<footer>Demo Shop · Test environment — no real payments are taken.</footer>
 <script>${script}</script>
 </body></html>`;
 
@@ -89,6 +92,7 @@ const routes: Record<string, (req: IncomingMessage, res: ServerResponse, url: UR
         <input id="email" name="email" type="email" required>
         <label for="card">Card number</label>
         <input id="card" name="card" required>
+        <small class="hint">Test card: 4111 1111 1111 1111. Cards ending in 0002 are declined.</small>
         <label for="coupon">Coupon code</label>
         <input id="coupon" name="coupon">
         <button type="button" class="secondary" data-testid="apply-coupon">Apply coupon</button>
@@ -115,6 +119,7 @@ const routes: Record<string, (req: IncomingMessage, res: ServerResponse, url: UR
     send(res, 200, page('Profile', `
       <h1>Profile</h1>
       <p>Signed in as qa.agent@example.com</p>
+      <p>Member since 2024 · 0 saved addresses</p>
       <button data-testid="delete-account">Delete account</button>`,
       `document.querySelector('[data-testid=delete-account]').addEventListener('click', function () {
          document.body.innerHTML = '<h1>Account deleted</h1>';
