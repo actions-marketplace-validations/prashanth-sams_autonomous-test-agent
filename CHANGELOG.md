@@ -42,6 +42,13 @@ this repository's release tags.
   first comment in place. Each report starts with the commit, a link to the
   run and the time, so a new push that reaches the same result still reads as
   new. Each run now notifies PR subscribers.
+- `.github/workflows/qa-agent.yml` runs the Action itself (`uses: ./`, with
+  `comment: 'true'`) instead of calling the CLI and posting its own comment, so
+  this repository's PRs test the Action as other repositories use it. Its
+  evidence artifact is now named `autonomous-test-agent-<attempt>-<run-id>`
+  instead of `qa-agent-evidence`, and the report is also written to the job
+  summary. On PRs opened before this change, the old report comment is no
+  longer updated; delete it by hand.
 
 ## [1.0.4] - 2026-10-15
 

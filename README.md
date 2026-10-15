@@ -184,8 +184,9 @@ journey broke. A failed journey is a test result: its defect decides the
 verdict, never exit code `3`. A run that selects nothing, such as a diff that
 maps to no journey, exits `0` but is reported as **Nothing to test**, never as
 passed.
-`.github/workflows/qa-agent.yml` wires this into GitHub Actions, uploads the
-evidence directory and keeps a single updated PR comment.
+`.github/workflows/qa-agent.yml` runs this repository's own Action
+(`uses: ./`) on every pull request against the demo app, so each PR also tests
+the Action the way other repositories use it.
 
 ## Use it as a GitHub Action
 
