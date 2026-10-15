@@ -30,6 +30,14 @@ inputs:
     description: Optional comma-separated changed paths, instead of running git diff.
     required: false
     default: ''
+  free-exploration:
+    description: In pr mode, explore the whole app with the budget the impacted journeys leave over. Off unless this or the config turns it on.
+    required: false
+    default: 'false'
+  always-run-critical-journeys:
+    description: In pr mode, run every critical journey, not only the ones the diff maps to. Off unless this or the config turns it on.
+    required: false
+    default: 'false'
   max-steps:
     description: Optional maximum exploration steps; otherwise use the agent config.
     required: false
@@ -102,6 +110,8 @@ runs:
         AGENT_HEAD: ${{ inputs.head }}
         AGENT_SHA: ${{ github.sha }}
         AGENT_CHANGED_FILES: ${{ inputs.changed-files }}
+        AGENT_FREE_EXPLORATION: ${{ inputs.free-exploration }}
+        AGENT_ALWAYS_RUN_CRITICAL_JOURNEYS: ${{ inputs.always-run-critical-journeys }}
         AGENT_MAX_STEPS: ${{ inputs.max-steps }}
         AGENT_OUTPUT_DIR: ${{ inputs.output-dir }}
         AGENT_BLOCKING: ${{ inputs.blocking }}

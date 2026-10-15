@@ -66,14 +66,20 @@ export interface AgentConfig {
     hints?: string[];
     script?: ScriptedStep[];
   }>;
+  /**
+   * Whether every critical journey runs on every PR run. Off by default: a
+   * critical journey runs only when an impacted area lists its id or name
+   * among its journeys. Exploratory sessions always run them all.
+   */
+  alwaysRunCriticalJourneys: boolean;
   rules: InvariantRule[];
   limits: LimitsConfig;
   safety: SafetyConfig;
   impactMap: ImpactMapEntry[];
   /**
    * Whether budget the selected missions leave over goes to free exploration
-   * of the whole app. When false, only the selected missions run, each within
-   * its own budget, and a run that selects none tests nothing.
+   * of the whole app. Off by default: only the selected missions run, each
+   * within its own budget, and a run that selects none tests nothing.
    */
   freeExploration: boolean;
   oracles: {

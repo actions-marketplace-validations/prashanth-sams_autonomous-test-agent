@@ -1,5 +1,5 @@
 import type { AgentConfig, ImpactAnalysis, ImpactedArea, Mission } from '@qa-agent/shared-contracts';
-import { missionFromImpact } from '../missions';
+import { impactingArea, missionFromImpact, namesJourney } from '../missions';
 
 export interface ImpactInput {
   base: string;
@@ -10,9 +10,11 @@ export interface ImpactInput {
 /**
  * Turns a diff into testing missions, in the three layers the design calls for:
  *
- *  1. deterministic rules  — critical journeys always run (handled by the agent)
+ *  1. deterministic rules  — critical journeys the diff maps to, or all of them
+ *                            with alwaysRunCriticalJourneys (handled by the agent)
  *  2. impact mapping       — configured path -> area -> journeys
- *  3. broadening           — low confidence widens scope instead of guessing
+ *  3. broadening           — low confidence widens scope instead of guessing,
+ *                            only when freeExploration is on (it is opt-in)
  *
  * No AI is required for this step, which is what keeps scope selection auditable.
  */
@@ -58,6 +60,16 @@ export function analyzeImpact(input: ImpactInput, config: AgentConfig): ImpactAn
         (unmapped.length > 8 ? ', …' : ''),
     );
   }
+  if (!config.alwaysRunCriticalJourneys) {
+    // A critical journey left out is scope the reader would otherwise assume ran.
+    const notRun = config.criticalJourneys.filter((journey) => !impactingArea(journey, [...areas.values()]));
+    if (notRun.length > 0) {
+      notes.push(
+        `Critical journeys run only when the diff maps to them; not run: ` +
+          `${notRun.map((journey) => journey.name).join(', ')}.`,
+      );
+    }
+  }
   if (input.changedFiles.length === 0) {
     notes.push(
       config.freeExploration
@@ -67,8 +79,8 @@ export function analyzeImpact(input: ImpactInput, config: AgentConfig): ImpactAn
     confidence = 0;
   }
 
-  // Low or unknown confidence must widen the scope, never narrow it, unless the
-  // config turned off the free exploration that widening relies on.
+  // Low or unknown confidence widens the scope only when the config opted into
+  // the free exploration that widening relies on; the notes say so either way.
   const lowConfidence = confidence < 0.6;
   const broadened = lowConfidence && config.freeExploration;
   if (lowConfidence) {
@@ -93,7 +105,11 @@ export function analyzeImpact(input: ImpactInput, config: AgentConfig): ImpactAn
 
 /** Missions implied by the analysis, budgeted against the run's step limit. */
 export function missionsFromImpact(analysis: ImpactAnalysis, config: AgentConfig): Mission[] {
-  const journeyCount = analysis.areas.reduce((total, area) => total + area.journeys.length, 0);
+  // A journey that names a critical journey runs as that scripted mission; a
+  // second, hint-only mission for it would only split the budget.
+  const journeysOf = (area: ImpactedArea) =>
+    area.journeys.filter((name) => !config.criticalJourneys.some((journey) => namesJourney(name, journey)));
+  const journeyCount = analysis.areas.reduce((total, area) => total + journeysOf(area).length, 0);
   if (journeyCount === 0) return [];
   const perMission = Math.max(
     6,
@@ -101,7 +117,7 @@ export function missionsFromImpact(analysis: ImpactAnalysis, config: AgentConfig
   );
 
   return analysis.areas.flatMap((area) =>
-    area.journeys.map((journey) =>
+    journeysOf(area).map((journey) =>
       missionFromImpact({
         area: area.area,
         journey,

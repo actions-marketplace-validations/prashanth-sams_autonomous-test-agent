@@ -28,6 +28,7 @@ function config(patch: Partial<AgentConfig> = {}): AgentConfig {
   return {
     target: { baseUrl: 'https://shop.example.com' },
     criticalJourneys: [],
+    alwaysRunCriticalJourneys: false,
     rules: [],
     limits: {
       maxSteps: 40,
@@ -514,6 +515,67 @@ test('with free exploration off and nothing selected, the run tests nothing and 
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }
+});
+
+test('on a PR run, a critical journey runs only when the diff maps to it', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'qa-agent-'));
+  const prConfig = (patch: Partial<AgentConfig> = {}) =>
+    config({
+      freeExploration: false,
+      criticalJourneys: [
+        { id: 'checkout', name: 'Checkout', script: [{ kind: 'goto', value: '/checkout' }] },
+        { id: 'browse', name: 'Browse products', script: [{ kind: 'goto', value: '/products' }] },
+      ],
+      // Lists the checkout journey by its id; the next test matches one by name.
+      impactMap: [{ paths: ['web/checkout/**'], area: 'Checkout', journeys: ['checkout'], confidence: 0.9 }],
+      reporting: { outputDir, video: false, trace: false, har: false },
+      ...patch,
+    });
+  const run = (cfg: AgentConfig, diff?: string[]) =>
+    new ExplorationAgent({
+      executor: routeExecutor(),
+      config: cfg,
+      impact: diff ? analyzeImpact({ base: 'main', head: 'pr', changedFiles: diff }, cfg) : undefined,
+    }).run();
+  const ran = (summary: { missions: Mission[] }) => summary.missions.map((mission) => mission.id);
+
+  try {
+    const selective = await run(prConfig(), ['web/checkout/Form.tsx']);
+    assert.deepEqual(ran(selective), ['checkout']);
+    assert.equal(selective.missions[0]?.rationale, 'configured as a critical journey; the diff maps to it via Checkout');
+    // The journey left out is named, so nobody assumes it ran.
+    assert.ok(
+      selective.impact?.notes.includes('Critical journeys run only when the diff maps to them; not run: Browse products.'),
+    );
+
+    const untouched = await run(prConfig(), ['README.md']);
+    assert.deepEqual(ran(untouched), []);
+
+    const always = await run(prConfig({ alwaysRunCriticalJourneys: true }), ['README.md']);
+    assert.deepEqual(ran(always), ['checkout', 'browse']);
+    assert.ok(!always.impact?.notes.some((note) => note.startsWith('Critical journeys run only')));
+
+    // An exploratory session has no diff to select by, so every journey runs.
+    const explore = await run(prConfig());
+    assert.deepEqual(ran(explore), ['checkout', 'browse']);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('an impacted journey that names a critical journey runs once, as the scripted journey', () => {
+  const withCheckout = config({
+    criticalJourneys: [{ id: 'checkout', name: 'Checkout' }],
+    impactMap: [
+      { paths: ['web/checkout/**'], area: 'Checkout', journeys: ['Checkout', 'payment retry'], confidence: 0.9 },
+    ],
+  });
+  const analysis = analyzeImpact({ base: 'main', head: 'pr', changedFiles: ['web/checkout/Form.tsx'] }, withCheckout);
+
+  assert.deepEqual(
+    missionsFromImpact(analysis, withCheckout).map((mission) => mission.name),
+    ['Checkout: payment retry'],
+  );
 });
 
 test('a broken critical journey is verified by re-running its script', async () => {

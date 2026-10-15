@@ -95,6 +95,12 @@ if (mode === 'pr') {
 
   const changedFiles = input('AGENT_CHANGED_FILES');
   if (changedFiles) args.push('--changed-files', changedFiles);
+
+  // Opt-in only: 'false' defers to the config, which defaults to off.
+  if (input('AGENT_FREE_EXPLORATION') === 'true') args.push('--free-exploration');
+  if (input('AGENT_ALWAYS_RUN_CRITICAL_JOURNEYS') === 'true') {
+    args.push('--always-run-critical-journeys');
+  }
 }
 
 process.stderr.write(`Running: node ${args.slice(1).join(' ')}\n`);
