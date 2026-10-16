@@ -10,7 +10,7 @@ it, and collects evidence of anything that looks broken.
 - **Tests what changed.** It reads the PR diff and runs the journeys that diff touches.
 - **Explores on its own.** It doesn't only replay a script; it picks its own clicks, inputs and links.
 - **Checks before it reports.** Every finding is replayed from a clean start first.
-- **Comes with evidence.** Each defect has steps, screenshots, logs, a Playwright trace and a runnable repro script.
+- **Comes with evidence.** Each defect has steps, screenshots, logs, a Playwright trace and a runnable repro script ([see an example report](#what-the-pr-report-looks-like)).
 - **Safe by default.** It is advisory only, blocks destructive actions and stays on the hosts you allow.
 
 **Contents:** [How it works](#how-it-works) ·
@@ -306,32 +306,49 @@ npm run pr -- \
 
 `explore` mode always runs every critical journey and explores freely.
 
-**The report explains what was picked and why:**
+### What the PR report looks like
 
-```
-| Area                | Confidence | Journeys                               |
-| Checkout / Payments | 90%        | checkout, payment retry, declined card |
-| Authentication      | 85%        | login, session expiry, logout          |
-```
+This is a real report the agent posted on a pull request in this repository:
 
-It then lists what was actually tested and which routes each flow reached.
-Anything the budget didn't reach is listed under **Not tested**:
+<p align="center">
+  <img src="docs/images/pr-report.png" alt="QA Agent PR comment: result Needs review, why the journeys were selected, and a reproduced critical defect with reproduction steps and evidence" width="720">
+</p>
 
-```
-| Flow                               | Type             | Result    | Steps | Routes                 |
-| Checkout                           | critical journey | completed | 21    | /checkout              |
-| Browse products                    | critical journey | completed | 15    | /products, /cart, /    |
-| Checkout / Payments: payment retry | impact analysis  | completed | 14    | /, /checkout, /cart, … |
-```
+How to read it, from top to bottom:
+
+1. **Result and summary.** The heading gives the result. Below it are the
+   target, how many missions ran, completed, failed, errored or were skipped,
+   the coverage (routes, states and actions in how long), the impact
+   confidence, and why the run stopped.
+2. **Why these journeys were selected.** For each area, the table shows the
+   changed files that matched it and the journeys that ran because of them.
+   Below the table, the report lists changed files that aren't in your
+   `impactMap`. It also says whether the scope widened. Here, confidence was
+   48%, below the 60% threshold, but free exploration was off, so only the
+   mapped journeys ran.
+3. **Defects.** Each defect shows its ID, severity and what went wrong. Below
+   that are:
+   - whether it was **reproduced** on replay (1/1 here) and how confident the
+     agent is
+   - where it happened and how often it was seen
+   - step-by-step reproduction
+   - evidence files: screenshots, DOM snapshots, and a runnable `DEF-*.spec.ts`
+4. **Further down** (not in the screenshot), a **Scope tested** table lists
+   each flow, its result, its steps and the routes it reached. A **Not tested**
+   table lists anything the budget didn't reach, followed by the final
+   **Recommendation**.
+
+The evidence files are in the workflow artifact, or under `runs/<run-id>/`
+when you run the agent locally.
 
 ### Results
 
-| Result | Exit code | Meaning |
-| --- | --- | --- |
-| `pass` | `0` | It tested the selected scope and found nothing |
-| `review` | `1` | It found something worth a look (advisory) |
-| `block` | `2` | It reproduced a high-severity defect. This fails CI only in blocking mode |
-| `error` | `3` | It couldn't test, for example because login failed or every mission broke |
+| Result | PR comment says | Exit code | Meaning |
+| --- | --- | --- | --- |
+| `pass` | Passed | `0` | It tested the selected scope and found nothing |
+| `review` | Needs review | `1` | It found something worth a look (advisory) |
+| `block` | Failed | `2` | It reproduced a high-severity defect. This fails CI only in blocking mode |
+| `error` | Could not test | `3` | It couldn't test, for example because login failed or every mission broke |
 
 A few details:
 
