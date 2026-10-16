@@ -93,11 +93,22 @@ export class ExplorationAgent {
     this.evidence = new EvidenceCollector(this.config.reporting.outputDir, this.runId, this.policy);
 
     const targeted = options.missions ?? [];
-    const critical = criticalJourneyMissions(this.config);
+    const critical = criticalJourneyMissions(this.config, this.impact);
     const planned = [...critical, ...targeted].sort((a, b) => b.priority - a.priority);
     const usedBudget = planned.reduce((total, mission) => total + mission.maxSteps, 0);
     const leftover = this.config.limits.maxSteps - usedBudget;
-    this.missions = leftover > 3 ? [...planned, explorationMission(leftover)] : planned;
+    if (this.config.freeExploration) {
+      this.missions = leftover > 3 ? [...planned, explorationMission(leftover)] : planned;
+    } else {
+      // Only the selected missions run, each within its own budget. Handing them
+      // the leftover would let them wander into areas the change did not touch.
+      this.missions = planned;
+    }
+    if (this.missions.length === 0) {
+      this.stoppedBecause = this.config.freeExploration
+        ? 'nothing to test: the step budget is too small for any mission'
+        : 'nothing to test: no journey was selected and free exploration is off';
+    }
   }
 
   get runDirectory(): string {
@@ -105,6 +116,9 @@ export class ExplorationAgent {
   }
 
   async run(): Promise<RunSummary> {
+    // With nothing selected there is no reason to start the app or log in.
+    if (this.missions.length === 0) return this.summarize();
+
     // start() is inside the try: it launches the browser before it navigates, so
     // a failed start still has to reach stop() or the process never exits.
     try {

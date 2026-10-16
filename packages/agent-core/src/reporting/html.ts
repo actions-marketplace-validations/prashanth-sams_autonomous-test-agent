@@ -62,6 +62,9 @@ export function toHtml(summary: RunSummary): string {
     .map(({ mission, reason }) => `<li>${escapeHtml(mission.name)} — ${escapeHtml(reason)}</li>`)
     .join('');
 
+  // A pass with no missions means nothing was selected, not that all is well.
+  const nothingTested = summary.recommendation === 'pass' && summary.missions.length === 0;
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -78,7 +81,7 @@ export function toHtml(summary: RunSummary): string {
   main { max-width: 900px; margin: 0 auto; }
   h1 { font-size: 1.6rem; margin:0 0 4px; }
   .verdict { display:inline-block; padding:4px 12px; border-radius:999px; font-weight:600; color:#fff;
-             background:${summary.recommendation === 'pass' ? '#1f7a4d' : summary.recommendation === 'review' ? '#8a6b0a' : summary.recommendation === 'error' ? '#5b6470' : '#b3261e'}; }
+             background:${nothingTested ? '#5b6470' : summary.recommendation === 'pass' ? '#1f7a4d' : summary.recommendation === 'review' ? '#8a6b0a' : summary.recommendation === 'error' ? '#5b6470' : '#b3261e'}; }
   .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:24px 0; }
   .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
   .stat b { display:block; font-size:1.4rem; }
@@ -98,7 +101,7 @@ export function toHtml(summary: RunSummary): string {
 <body>
 <main>
   <h1>Autonomous exploratory run</h1>
-  <p><span class="verdict">${summary.recommendation.toUpperCase()}</span>
+  <p><span class="verdict">${nothingTested ? 'NOTHING TO TEST' : summary.recommendation.toUpperCase()}</span>
      &nbsp;<code>${escapeHtml(summary.runId)}</code> · ${escapeHtml(summary.target)}</p>
 
   <div class="stats">

@@ -24,7 +24,12 @@ Options:
   --out <dir>          Output directory for runs (default: runs)
   --blocking           Allow the agent to recommend blocking a merge
   --changed-files <a,b>  Explicit file list instead of running git diff
-  --quiet              Only print the final summary
+  --free-exploration   pr: explore the whole app with the budget left over
+                       (off unless this or the config turns it on)
+  --always-run-critical-journeys
+                       pr: run every critical journey, not only the ones the
+                       diff maps to (off unless this or the config turns it on)
+  --quiet             Only print the final summary
   --json               Print the run summary as JSON on stdout
 
 Exit codes: 0 pass, 1 review, 2 block, 3 agent error.
@@ -53,7 +58,7 @@ async function main(): Promise<number> {
       const changedFiles =
         typeof flags['changed-files'] === 'string'
           ? String(flags['changed-files']).split(',').map((file) => file.trim()).filter(Boolean)
-          : gitChangedFiles(base, head);
+          : gitChangedFiles(base, head, config);
       return report(
         await runWebAgent({ config, diff: { base, head, changedFiles }, quiet: Boolean(flags.quiet) }),
         flags,
@@ -102,10 +107,12 @@ function buildOverrides(flags: Flags): Partial<AgentConfig> {
   }
   if (typeof flags.out === 'string') overrides.reporting = { outputDir: flags.out };
   if (flags.blocking) overrides.mode = 'blocking';
+  if (flags['free-exploration']) overrides.freeExploration = true;
+  if (flags['always-run-critical-journeys']) overrides.alwaysRunCriticalJourneys = true;
   return overrides as Partial<AgentConfig>;
 }
 
-function gitChangedFiles(base: string, head: string): string[] {
+function gitChangedFiles(base: string, head: string, config: AgentConfig): string[] {
   try {
     const output = execFileSync('git', ['diff', '--name-only', `${base}...${head}`], {
       encoding: 'utf8',
@@ -114,7 +121,12 @@ function gitChangedFiles(base: string, head: string): string[] {
   } catch (error) {
     process.stderr.write(
       `git diff ${base}...${head} failed (${(error as Error).message}); ` +
-        'continuing with an empty diff, which broadens the exploration scope.\n',
+        'continuing with an empty diff, ' +
+        (config.freeExploration
+          ? 'which broadens the exploration scope.\n'
+          : config.alwaysRunCriticalJourneys
+            ? 'so only the critical journeys run.\n'
+            : 'so no journey is selected.\n'),
     );
     return [];
   }

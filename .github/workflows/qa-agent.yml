@@ -1,7 +1,9 @@
-# PR-driven autonomous exploratory testing.
+# PR-driven autonomous testing.
 #
-# The agent reads the diff, maps it to affected journeys, explores them on the
-# preview environment and posts an evidence-backed recommendation on the PR.
+# Runs this repository's own Action (`uses: ./`), so every PR also tests the
+# Action as other repositories use it. The agent reads the diff, maps it to
+# affected journeys, tests them on the preview environment and posts an
+# evidence-backed recommendation on the PR.
 name: QA Agent
 
 on:
@@ -27,9 +29,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Only the demo app is built here: it has to be running before the Action
+      # starts, and the Action builds the agent and installs Chromium itself.
       - run: npm ci
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npm run build --workspace examples/demo-app
 
       # Replace with the real preview environment for the PR.
       - name: Start the application under test
@@ -37,67 +40,13 @@ jobs:
           node examples/demo-app/dist/server.js &
           npx wait-on http://localhost:4321 --timeout 30000
 
+      # Uploads the evidence, posts the report on the PR (replacing the previous
+      # one) and fails the job only when the agent could not execute. The config
+      # is advisory, so a defect never blocks the merge.
       - name: Run the agent against the changed areas
-        id: agent
-        continue-on-error: true
-        run: |
-          set +e
-          node apps/web-agent/dist/cli.js pr \
-            --config agent.example.yaml \
-            --base "origin/${{ github.base_ref }}" \
-            --head "${{ github.sha }}" \
-            --url "${PREVIEW_URL:-http://localhost:4321}" \
-            --out runs \
-            --quiet > agent-report.md
-          CODE=$?
-          set -e
-          echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          exit $CODE
-        env:
-          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
-
-      - name: Publish evidence
-        if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./
         with:
-          name: qa-agent-evidence
-          path: runs/
-
-      - name: Comment on the pull request
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('node:fs');
-            if (!fs.existsSync('agent-report.md')) return;
-            const body = fs.readFileSync('agent-report.md', 'utf8');
-            const marker = '<!-- qa-agent-report -->';
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              ...context.repo, issue_number: context.issue.number, per_page: 100,
-            });
-            // Update in place so a busy PR does not collect a wall of comments.
-            const existing = comments.find(
-              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker),
-            );
-            const payload = `${marker}\n${body}`;
-            if (existing) {
-              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body: payload });
-            } else {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body: payload });
-            }
-
-      # Exit codes: 0 pass, 1 review, 2 block, 3 agent error. Advisory mode never
-      # returns 2, so making the check required is a deliberate, separate decision.
-      - name: Enforce the agent's recommendation
-        run: |
-          case "${{ steps.agent.outputs.code }}" in
-            0|1) exit 0 ;;
-            2)
-              echo "Agent recommended blocking this merge; see the PR comment for evidence."
-              exit 1
-              ;;
-            *)
-              echo "The agent failed to execute; check the logs above."
-              exit 1
-              ;;
-          esac
+          url: ${{ vars.PREVIEW_URL || 'http://localhost:4321' }}
+          config: agent.example.yaml
+          comment: 'true'
+          
