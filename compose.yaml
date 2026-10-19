@@ -1,0 +1,41 @@
+# Try the agent on the bundled demo shop with nothing installed but Docker:
+#
+#   docker compose up --build --exit-code-from agent
+#
+# The agent explores the shop, Compose then stops both containers, and the
+# command exits with the agent's exit code (0 pass, 1 review, 2 block, 3 agent
+# error). The report is written to runs/<run-id>/ in this folder. Remove the
+# stopped containers with `docker compose down`.
+name: autonomous-test-agent
+
+services:
+  # The deliberately buggy shop from examples/demo-app. It runs from the agent
+  # image, which this service builds, so the demo needs only one image.
+  demo:
+    image: autonomous-test-agent:local
+    build: .
+    entrypoint: [node, /opt/autonomous-test-agent/examples/demo-app/dist/server.js]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:4321').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  agent:
+    image: autonomous-test-agent:local
+    # The demo service builds this image, so there is nothing to pull.
+    pull_policy: never
+    depends_on:
+      demo:
+        condition: service_healthy
+    # Share the shop's network, so the agent reaches it on localhost:4321: the
+    # URL that agent.example.yaml already targets and allows.
+    network_mode: service:demo
+    # Playwright's recommended settings for running Chromium in a container.
+    init: true
+    ipc: host
+    # The container works in /work, so the config path and the runs/ output
+    # folder resolve against this folder, as with `npm run explore`.
+    volumes:
+      - .:/work
+    command: [explore, --config, agent.example.yaml]
