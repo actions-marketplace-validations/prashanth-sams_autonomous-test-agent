@@ -19,6 +19,7 @@ it, and collects evidence of anything that looks broken.
 [Authentication](#authentication) ·
 [Pull requests](#testing-a-pull-request) ·
 [GitHub Actions](#run-it-in-github-actions) ·
+[Docker](#run-it-with-docker) ·
 [Reference](#reference) ·
 [Good to know](#good-to-know)
 
@@ -82,7 +83,8 @@ It also checks any business rules you configure.
 
 Try it on the bundled demo shop, which has six bugs planted in it.
 
-**You need:** Node.js 20 or later, and git.
+**You need:** Node.js 20 or later, and git. If you only have Docker, see
+[Try it on the demo shop](#try-it-on-the-demo-shop) instead.
 
 ```bash
 npm install
@@ -442,6 +444,174 @@ It runs this action against the demo app on every PR in this repository.
 
 ---
 
+## Run it with Docker
+
+The Docker image contains the agent, Node.js and Playwright's browsers, so you
+only need Docker. Use it on your machine, on a server, or in any CI system
+that runs Linux containers.
+
+The image is `ghcr.io/prashanth-sams/autonomous-test-agent`. Each release
+publishes it for `linux/amd64` and `linux/arm64`:
+
+| Tag | Points at |
+| --- | --- |
+| `1` | The newest 1.x release. Like the Action's `@v1`, it picks up fixes |
+| `1.2` | The newest 1.2.x release |
+| `1.2.3` | Exactly that release, for repeatable runs |
+| `latest` | The newest release |
+
+### Try it on the demo shop
+
+From a clone of this repository:
+
+```bash
+docker compose up --build --exit-code-from agent
+```
+
+[compose.yaml](compose.yaml) starts the demo shop and runs the agent against
+it. The report goes to `runs/<run-id>/`, as in the [Quick start](#quick-start),
+and the command exits with the agent's exit code. Remove the stopped
+containers afterwards with `docker compose down`.
+
+### Test your own app
+
+Run it from the folder that holds your config, usually your app's repository:
+
+```bash
+docker run --rm --init --ipc=host -v "$PWD:/work" \
+  ghcr.io/prashanth-sams/autonomous-test-agent:1 \
+  explore --url https://staging.example.com --config qa/agent.yaml
+```
+
+- **Everything after the image name goes to the [CLI](#cli),** with the same
+  options and exit codes. `--headed` doesn't work, because a container has no
+  screen.
+- **`-v "$PWD:/work"` mounts your folder where the agent runs,** so `--config`
+  and the `runs/` folder resolve against it, as when you run the CLI there.
+- **`--init --ipc=host` are [Playwright's recommended flags](https://playwright.dev/docs/docker)**
+  for browsers in Docker. `--init` cleans up the browser's leftover
+  processes, and `--ipc=host` keeps Chromium from running out of memory.
+- **On Linux, the files in `runs/` belong to root.** Add
+  `--user "$(id -u):$(id -g)"` to keep them yours.
+
+### When your app runs on your machine
+
+Inside the container, `localhost` is the container itself. Use
+`host.docker.internal` to reach your machine:
+
+```bash
+docker run --rm --init --ipc=host -v "$PWD:/work" \
+  --add-host=host.docker.internal:host-gateway \
+  ghcr.io/prashanth-sams/autonomous-test-agent:1 \
+  explore --url http://host.docker.internal:3000 --config qa/agent.yaml
+```
+
+- **Allow that host in your config:** `allowedHosts: [host.docker.internal:3000]`.
+  The agent matches the host and port exactly, so `localhost:3000` doesn't
+  cover it. Without it, the agent flags your own pages as "Navigated outside
+  the application".
+- **`--add-host` is for Linux.** Docker Desktop on Mac and Windows already
+  knows the name, and the flag does no harm there.
+- **On Linux, your app must listen on all interfaces** (`0.0.0.0`), not only
+  on `127.0.0.1`. Or use `--network host` instead, and keep your `localhost`
+  URL and config.
+
+### Test a pull request
+
+`pr` mode runs `git diff` itself, so mount the whole repository and run from
+its root:
+
+```bash
+docker run --rm --init --ipc=host -v "$PWD:/work" \
+  ghcr.io/prashanth-sams/autonomous-test-agent:1 \
+  pr --base origin/main --head HEAD \
+  --url https://preview-123.example.com --config qa/agent.yaml
+```
+
+The image includes git, and both refs must exist in your clone. To skip git,
+pass the changed files yourself with `--changed-files`.
+
+### Run it in other CI systems
+
+On GitHub, [the Action](#run-it-in-github-actions) is simpler. Any other CI
+system that runs Docker can use the commands above. GitLab CI and Jenkins
+start the image with their own shell instead, so clear its entrypoint there.
+The CLI is on the `PATH` as `qa-web-agent`.
+
+<details>
+<summary><strong>GitLab CI</strong></summary>
+
+```yaml
+qa-agent:
+  image:
+    name: ghcr.io/prashanth-sams/autonomous-test-agent:1
+    entrypoint: ['']
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+  variables:
+    GIT_DEPTH: 0 # pr mode needs both sides of the diff
+  script:
+    - >
+      qa-web-agent pr --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head HEAD
+      --url "$PREVIEW_URL" --config qa/agent.yaml --out qa-agent-runs
+  allow_failure:
+    exit_codes: [1, 2] # findings are advisory; only an agent error fails the job
+  artifacts:
+    when: always
+    paths: [qa-agent-runs/]
+```
+
+</details>
+
+<details>
+<summary><strong>Jenkins</strong></summary>
+
+```groovy
+pipeline {
+  agent {
+    docker {
+      image 'ghcr.io/prashanth-sams/autonomous-test-agent:1'
+      args '--entrypoint= --init --ipc=host'
+    }
+  }
+  stages {
+    stage('QA agent') {
+      steps {
+        script {
+          def code = sh(returnStatus: true, script:
+            'qa-web-agent explore --url "$PREVIEW_URL" --config qa/agent.yaml --out qa-agent-runs')
+          // 1 (review) and 2 (block) are findings: flag the build instead of failing it.
+          if (code == 1 || code == 2) {
+            unstable("The QA agent reported findings (exit code ${code})")
+          } else if (code != 0) {
+            error("The QA agent could not run (exit code ${code})")
+          }
+        }
+      }
+    }
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: 'qa-agent-runs/**', allowEmptyArchive: true
+    }
+  }
+}
+```
+
+</details>
+
+### Build the image yourself
+
+```bash
+docker build -t autonomous-test-agent:local .
+```
+
+Then use `autonomous-test-agent:local` wherever the examples above say
+`ghcr.io/prashanth-sams/autonomous-test-agent:1`. To publish a release, see
+[docs/publishing.md](docs/publishing.md).
+
+---
+
 ## How you can trust the findings
 
 - **Every finding is replayed from a clean state** before it's reported. Only
@@ -539,3 +709,6 @@ npm test
 The unit tests cover impact analysis, defect deduplication and confidence, the
 merge recommendation, the safety policy, risk scoring, the oracles, verification
 of broken critical journeys, and the tested-scope report.
+
+To cut a release, which also publishes the Docker image, see
+[docs/publishing.md](docs/publishing.md).

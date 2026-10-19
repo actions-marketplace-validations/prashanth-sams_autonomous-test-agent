@@ -1,0 +1,22 @@
+# The build context is an allowlist: only what the image needs reaches the
+# builder, so local runs, reports, saved sessions and .env files never do.
+# Add a "!" line here for any new top-level file or folder the image needs.
+*
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!tsconfig.build.json
+!agent.example.yaml
+!packages
+!executors
+!apps
+!examples
+
+# Left out even inside the folders above: installed dependencies, build
+# output, run output and secrets.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/runs
+**/.env*
+**/.DS_Store
