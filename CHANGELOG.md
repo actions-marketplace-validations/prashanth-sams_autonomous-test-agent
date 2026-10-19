@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are
 this repository's release tags.
 
+## [1.0.6] - 2026-10-16 (Docker)
+
+### Added
+
+- A Docker image with the agent, Node.js and Playwright's browsers, so the
+  CLI runs with only Docker installed. Each release publishes it to GitHub
+  Container Registry as `ghcr.io/prashanth-sams/autonomous-test-agent`, for
+  `linux/amd64` and `linux/arm64`, tagged `X.Y.Z`, `X.Y`, `X` and `latest`.
+  A prerelease gets only its own version tag. Mount your project at `/work`;
+  `--config` paths and the `runs/` folder resolve against it.
+- `compose.yaml`, which runs the agent against the demo shop:
+  `docker compose up --build --exit-code-from agent`.
+- `.github/workflows/docker-publish.yml`. On pull requests that change the
+  image, it builds the image and runs it against the demo shop. On release,
+  it also publishes the image.
+- `docs/publishing.md`, the release steps for maintainers.
+
 ## [1.0.6] - 2026-10-16
 
 ### Added
@@ -181,7 +198,7 @@ First tagged release.
 - The action cannot run, because `scripts/action-runner.mjs` is missing. Use
   1.0.2 or later.
 
-[Unreleased]: https://github.com/prashanth-sams/autonomous-test-agent/compare/v1.0.3...1.0.4
+[Unreleased]: https://github.com/prashanth-sams/autonomous-test-agent/compare/v1.0.7...HEAD
 [1.0.3]: https://github.com/prashanth-sams/autonomous-test-agent/compare/1.0.2...v1.0.3
 [1.0.2]: https://github.com/prashanth-sams/autonomous-test-agent/compare/1.0.1...1.0.2
 [1.0.1]: https://github.com/prashanth-sams/autonomous-test-agent/releases/tag/1.0.1
